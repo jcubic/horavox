@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -111,9 +112,9 @@ def _cmd_add():
     args = _parse_add_args()
 
     command = args.command.strip()
-    parts = command.split()
+    parts = shlex.split(command)
     parts = [p for p in parts if p != "--background"]
-    command = " ".join(parts)
+    command = shlex.join(parts)
 
     entry = add_instance(command)
     print(f"Installed instance {entry['id']}: {command}")
@@ -306,6 +307,7 @@ def _cmd_run():
 
     vox = os.path.join(os.path.dirname(sys.executable), "vox")
     children = {}
+    crash_failures = {}
     running = True
 
     def reload_config(signum=None, frame=None):
@@ -327,7 +329,7 @@ def _cmd_run():
 
     while running:
         time.sleep(2)
-        _check_children(vox, children)
+        _check_children(vox, children, crash_failures)
 
     _stop_all(children)
     log_to_file("service: stopped")
@@ -350,7 +352,7 @@ def _reconcile(vox, children):
 
 
 def _start_child(vox, children, instance_id, command):
-    args = command.split()
+    args = shlex.split(command)
     log_to_file(f"service: starting instance {instance_id}: {command}")
     env = os.environ.copy()
     env["HORAVOX_SERVICE"] = "1"
@@ -381,7 +383,12 @@ def _stop_all(children):
         _stop_child(children, iid)
 
 
-def _check_children(vox, children):
+MAX_CRASH_COUNT = 5
+
+
+def _check_children(vox, children, crash_failures=None):
+    if crash_failures is None:
+        crash_failures = {}
     instances = list_instances()
     command_map = {inst["id"]: inst["command"] for inst in instances}
     for iid in list(children.keys()):
@@ -389,13 +396,24 @@ def _check_children(vox, children):
         if proc.poll() is not None:
             if iid not in command_map:
                 del children[iid]
+                crash_failures.pop(iid, None)
             elif proc.returncode != 0:
-                log_to_file(f"service: instance {iid} crashed (exit {proc.returncode}), restarting")
-                del children[iid]
-                _start_child(vox, children, iid, command_map[iid])
+                count = crash_failures.get(iid, 0) + 1
+                crash_failures[iid] = count
+                if count > MAX_CRASH_COUNT:
+                    log_to_file(f"service: instance {iid} crashed {count} times, giving up")
+                    del children[iid]
+                else:
+                    log_to_file(
+                        f"service: instance {iid} crashed (exit {proc.returncode}),"
+                        f" restarting ({count}/{MAX_CRASH_COUNT})"
+                    )
+                    del children[iid]
+                    _start_child(vox, children, iid, command_map[iid])
             else:
                 log_to_file(f"service: instance {iid} completed (exit 0)")
                 del children[iid]
+                crash_failures.pop(iid, None)
 
 
 if __name__ == "__main__":

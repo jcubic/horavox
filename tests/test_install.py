@@ -189,6 +189,32 @@ class TestServiceAdd:
         assert "--background" not in captured_command[0]
         assert "clock --lang pl" == captured_command[0]
 
+    def test_add_preserves_quoted_message(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = False
+        captured_command = []
+
+        def fake_add(command):
+            captured_command.append(command)
+            return {"id": "eee555", "command": command}
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox service add", "at 18:05 --message 'coś by warto zjeść'"],
+        ):
+            with mock.patch.object(service, "add_instance", side_effect=fake_add):
+                with mock.patch.object(service, "get_platform", return_value=platform):
+                    service._cmd_add()
+        import shlex
+
+        parts = shlex.split(captured_command[0])
+        assert "--message" in parts
+        msg_idx = parts.index("--message")
+        assert parts[msg_idx + 1] == "coś by warto zjeść"
+
 
 # ==================== service delete ====================
 
@@ -731,6 +757,46 @@ class TestServiceManager:
                     _check_children("/usr/bin/vox", children)
         assert children["aaa"] is new_proc
 
+    def test_check_children_stops_after_rapid_crashes(self):
+        """After MAX_CRASH_COUNT rapid crashes, stop restarting the child."""
+        from horavox.service import MAX_CRASH_COUNT, _check_children
+
+        instances = [{"id": "aaa", "command": "at 12:00"}]
+        children = {}
+        crash_failures = {}
+
+        for i in range(MAX_CRASH_COUNT + 1):
+            proc = mock.MagicMock()
+            proc.poll.return_value = 2
+            proc.returncode = 2
+            children["aaa"] = proc
+            with mock.patch("horavox.service.list_instances", return_value=instances):
+                with mock.patch("horavox.service.subprocess.Popen") as mock_popen:
+                    new_proc = mock.MagicMock()
+                    mock_popen.return_value = new_proc
+                    with mock.patch("horavox.service.log_to_file"):
+                        _check_children("/usr/bin/vox", children, crash_failures)
+            if i < MAX_CRASH_COUNT:
+                assert "aaa" in children, f"Should restart on crash {i + 1}"
+            else:
+                assert "aaa" not in children, "Should stop restarting after max crashes"
+                mock_popen.assert_not_called()
+
+    def test_check_children_resets_crash_count_on_success(self):
+        """A successful run resets the crash counter."""
+        from horavox.service import _check_children
+
+        crash_failures = {"aaa": 2}
+        proc = mock.MagicMock()
+        proc.poll.return_value = 0
+        proc.returncode = 0
+        children = {"aaa": proc}
+        instances = [{"id": "aaa", "command": "clock"}]
+        with mock.patch("horavox.service.list_instances", return_value=instances):
+            with mock.patch("horavox.service.log_to_file"):
+                _check_children("/usr/bin/vox", children, crash_failures)
+        assert "aaa" not in crash_failures
+
     def test_check_children_skips_clean_exit(self):
         """A child that exits 0 (completed normally) should not be restarted."""
         from horavox.service import _check_children
@@ -769,6 +835,28 @@ class TestServiceManager:
             with mock.patch("horavox.service.log_to_file"):
                 _check_children("/usr/bin/vox", children)
         assert children["aaa"] is proc
+
+    def test_start_child_quoted_message(self):
+        from horavox.service import _start_child
+
+        children = {}
+        with mock.patch("horavox.service.subprocess.Popen") as mock_popen:
+            mock_popen.return_value = mock.MagicMock()
+            with mock.patch("horavox.service.log_to_file"):
+                _start_child(
+                    "/usr/bin/vox",
+                    children,
+                    "aaa",
+                    "at 18:05 --message 'coś by warto zjeść'",
+                )
+        call_args = mock_popen.call_args[0][0]
+        assert call_args == [
+            "/usr/bin/vox",
+            "at",
+            "18:05",
+            "--message",
+            "coś by warto zjeść",
+        ]
 
     def test_start_child_oserror(self):
         from horavox.service import _start_child
