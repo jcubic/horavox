@@ -26,10 +26,10 @@ from horavox.core import (
     parse_time_range,
     play_beep,
     play_speech,
+    prepare_combined_speech,
     prepare_speech,
     remove_session,
     resolve_voice,
-    speak,
     time_to_minutes,
 )
 
@@ -123,8 +123,28 @@ def parse_args():
     return parser.parse_args()
 
 
+def _find_mapping_message(mapping, hour, minute, weekday):
+    """Find a matching mapping entry for the given time and weekday."""
+    time_key = f"{hour}:{minute:02d}"
+    for entry in mapping:
+        if entry["time"] != time_key:
+            continue
+        if "date" not in entry:
+            return entry.get("message")
+        from horavox.at import parse_repeat
+
+        repeat_days = parse_repeat(",".join(entry["date"]))
+        if weekday in repeat_days:
+            return entry.get("message")
+    return None
+
+
 def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
     """Main clock loop. Runs in foreground or as daemon action."""
+    from horavox.config import get_mapping, load_config
+
+    mapping = get_mapping()
+    mapping_time = load_config()["settings"].get("mapping", {}).get("time", "true") != "false"
 
     def get_now():
         return datetime.datetime.now() + time_offset
@@ -163,14 +183,26 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
             target += datetime.timedelta(days=1)
         return target, target_hour, target_minute
 
+    def speak_with_mapping(voice, lang_data, hour, minute, weekday):
+        message = _find_mapping_message(mapping, hour, minute, weekday)
+        text = get_spoken_time(lang_data, hour, minute)
+        if message and mapping_time:
+            prepare_combined_speech(voice, [text, message])
+        elif message:
+            prepare_speech(voice, message)
+        else:
+            prepare_speech(voice, text)
+
     # --exit mode
     if args.exit:
         now = get_now()
         frac_sec = now.second + now.microsecond / 1_000_000
         if now.minute % freq == 0 and frac_sec < 5:
             if is_in_range(now.hour, now.minute, start_minutes, end_minutes):
-                text = get_spoken_time(lang_data, now.hour, now.minute)
-                speak(voice, text, beep_count=beep_count_for_minute(now.minute))
+                speak_with_mapping(voice, lang_data, now.hour, now.minute, now.weekday())
+                for _ in range(beep_count_for_minute(now.minute)):
+                    play_beep()
+                play_speech()
             else:
                 log(f"  {now.hour}:{now.minute:02d} outside range ({range_str}), skipping.")
         else:
@@ -201,8 +233,7 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         if in_window and target != last_announced:
             last_announced = target
             if is_in_range(target_hour, target_minute, start_minutes, end_minutes):
-                text = get_spoken_time(lang_data, target_hour, target_minute)
-                prepare_speech(voice, text)
+                speak_with_mapping(voice, lang_data, target_hour, target_minute, target.weekday())
                 remaining = (target - get_now()).total_seconds()
                 if remaining > 0:
                     time.sleep(remaining)

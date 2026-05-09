@@ -14,7 +14,7 @@ VALID_SETTINGS = {"lang", "voice", "mode", "volume"}
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
-        return {"settings": {}, "alias": {}}
+        return {"settings": {}, "alias": {}, "mapping": []}
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     # Migrate flat format to structured
@@ -23,7 +23,18 @@ def load_config():
         save_config(data)
     data.setdefault("settings", {})
     data.setdefault("alias", {})
+    # Migrate dict mapping to list format
+    if isinstance(data.get("mapping"), dict):
+        old = data["mapping"]
+        data["mapping"] = [{"time": t, "message": m} for t, m in old.items()]
+        save_config(data)
+    data.setdefault("mapping", [])
     return data
+
+
+def get_mapping():
+    """Return the mapping list."""
+    return load_config()["mapping"]
 
 
 def save_config(data):
@@ -121,6 +132,8 @@ def _flatten(data, prefix=""):
         value = data[key]
         if isinstance(value, dict):
             yield from _flatten(value, path)
+        elif isinstance(value, list):
+            continue
         else:
             yield path, value
 
@@ -143,6 +156,9 @@ def _validate_setting(keys, value):
             except ValueError:
                 print(f"Error: volume must be an integer 0-100, got '{value}'")
                 sys.exit(1)
+    if keys == ["settings", "mapping", "time"] and value not in ("true", "false"):
+        print(f"Error: mapping.time must be 'true' or 'false', got '{value}'")
+        sys.exit(1)
 
 
 # ==================== CLI ====================
@@ -181,29 +197,142 @@ def main():
         raise
 
 
+def _format_mapping_entry(i, entry):
+    """Format a single mapping entry for display."""
+    parts = [f"  {i}: {entry['time']}"]
+    if "message" in entry:
+        parts.append(f' "{entry["message"]}"')
+    if "date" in entry:
+        parts.append(f" ({', '.join(entry['date'])})")
+    return "".join(parts)
+
+
+def _print_mapping(mapping):
+    """Print all mapping entries."""
+    if not mapping:
+        print("No mapping entries.")
+        return
+    print("Mapping:")
+    for i, entry in enumerate(mapping):
+        print(_format_mapping_entry(i, entry))
+
+
+def _validate_date_values(values):
+    """Validate date values against known day names and groups."""
+    from horavox.at import DAY_GROUPS, DAY_NAMES
+
+    for v in values:
+        v = v.strip().lower()
+        if v not in DAY_NAMES and v not in DAY_GROUPS:
+            valid = sorted(list(DAY_NAMES.keys()) + list(DAY_GROUPS.keys()))
+            print(f"Error: unknown day '{v}'. Valid: {', '.join(valid)}")
+            sys.exit(1)
+
+
+def _parse_mapping_args(args_list):
+    """Parse mapping add arguments: TIME [MESSAGE] [--date DAY[,DAY...]]"""
+    if not args_list:
+        print("Error: mapping.add requires at least a time (HH:MM).")
+        sys.exit(1)
+
+    time_val = args_list[0]
+    from horavox.core import parse_time_arg
+
+    parse_time_arg(time_val)
+
+    entry = {"time": time_val}
+    rest = args_list[1:]
+
+    date_idx = None
+    for i, arg in enumerate(rest):
+        if arg == "--date":
+            date_idx = i
+            break
+
+    if date_idx is not None:
+        msg_parts = rest[:date_idx]
+        date_parts = rest[date_idx + 1 :]
+        if not date_parts:
+            print("Error: --date requires at least one day value.")
+            sys.exit(1)
+        date_values = []
+        for part in date_parts:
+            date_values.extend(part.split(","))
+        _validate_date_values(date_values)
+        entry["date"] = [v.strip().lower() for v in date_values]
+    else:
+        msg_parts = rest
+
+    if msg_parts:
+        entry["message"] = " ".join(msg_parts)
+
+    return entry
+
+
 def _main():
+    # Intercept mapping.add before argparse (it has its own --date flag)
+    if len(sys.argv) >= 2 and sys.argv[1] == "mapping.add":
+        cfg = load_config()
+        entry = _parse_mapping_args(sys.argv[2:])
+        cfg["mapping"].append(entry)
+        save_config(cfg)
+        idx = len(cfg["mapping"]) - 1
+        print(f"Added{_format_mapping_entry(idx, entry)}")
+        return
+
     args = parse_args()
     cfg = load_config()
 
     if args.unset:
-        keys = _resolve_key(args.unset)
+        key = args.unset
+        if key.startswith("mapping."):
+            suffix = key[len("mapping.") :]
+            try:
+                idx = int(suffix)
+            except ValueError:
+                keys = _resolve_key(key)
+                if _del_nested(cfg, keys):
+                    save_config(cfg)
+                    print(f"Unset '{key}'.")
+                else:
+                    print(f"Key '{key}' is not set.")
+                return
+            mapping = cfg["mapping"]
+            if 0 <= idx < len(mapping):
+                removed = mapping.pop(idx)
+                save_config(cfg)
+                print(f"Removed mapping {idx}: {removed['time']}")
+            else:
+                print(f"Error: mapping index {idx} out of range (0-{len(mapping) - 1}).")
+                sys.exit(1)
+            return
+        keys = _resolve_key(key)
         if _del_nested(cfg, keys):
             save_config(cfg)
-            print(f"Unset '{args.unset}'.")
+            print(f"Unset '{key}'.")
         else:
-            print(f"Key '{args.unset}' is not set.")
+            print(f"Key '{key}' is not set.")
         return
 
     if not args.args:
         entries = list(_flatten(cfg))
-        if not entries:
+        mapping = cfg["mapping"]
+        if not entries and not mapping:
             print("No configuration set.")
             return
         for path, value in entries:
             print(f"{path}={value}")
+        if mapping:
+            if entries:
+                print()
+            _print_mapping(mapping)
         return
 
     first = args.args[0]
+
+    if first == "mapping":
+        _print_mapping(cfg["mapping"])
+        return
 
     # Two-arg form: vox config dotted.key 'value with spaces'
     if "=" not in first and len(args.args) >= 2:

@@ -496,6 +496,35 @@ class TestTTS:
         core.speak(None, "test", beep_count=2)
         # Should not crash
 
+    def test_prepare_combined_speech_nosound(self, monkeypatch):
+        core.NOSOUND = True
+        called = []
+        monkeypatch.setattr(core, "log_spoken", lambda t: called.append(t))
+        core.prepare_combined_speech(None, ["hello", "world"])
+        assert called == []  # log_spoken not called in nosound
+
+    def test_prepare_combined_speech_logs_all_texts(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        core.NOSOUND = False
+        logged = []
+        monkeypatch.setattr(core, "log_spoken", lambda t: logged.append(t))
+        monkeypatch.setattr(core, "play_blank", lambda: None)
+
+        mock_voice = MagicMock()
+
+        def fake_synthesize(text, wav_file):
+            import struct
+
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(22050)
+            wav_file.writeframes(struct.pack("<h", 0) * 100)
+
+        mock_voice.synthesize_wav = fake_synthesize
+        core.prepare_combined_speech(mock_voice, ["hello", "world"], pause_ms=100)
+        assert logged == ["hello", "world"]
+
 
 # ==================== session management ====================
 

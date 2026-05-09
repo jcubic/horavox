@@ -421,14 +421,57 @@ def scale_wav_volume(path):
         w.writeframes(samples.tobytes())
 
 
+def _synthesize_to_file(voice, text, path):
+    """Synthesize text to a WAV file."""
+    with wave.open(path, "wb") as wav_file:
+        voice.synthesize_wav(text, wav_file)
+
+
+def _append_silence(wav_file, duration_ms, sample_rate, sample_width, channels):
+    """Append silence to an open WAV file."""
+    num_samples = int(sample_rate * duration_ms / 1000)
+    silence = b"\x00" * (num_samples * sample_width * channels)
+    wav_file.writeframes(silence)
+
+
 def prepare_speech(voice, text):
     """Synthesize WAV and play blank MP3 to warm up Bluetooth audio."""
     log(f"Preparing: {text}")
     if NOSOUND:
         return
     log_spoken(text)
-    with wave.open(TEMP_WAV, "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
+    _synthesize_to_file(voice, text, TEMP_WAV)
+    scale_wav_volume(TEMP_WAV)
+    play_blank()
+
+
+def prepare_combined_speech(voice, texts, pause_ms=700):
+    """Synthesize multiple texts into one WAV with pauses between them."""
+    log(f"Preparing combined: {texts}")
+    if NOSOUND:
+        return
+    for t in texts:
+        log_spoken(t)
+
+    tmp_part = TEMP_WAV + ".part"
+    _synthesize_to_file(voice, texts[0], TEMP_WAV)
+
+    with wave.open(TEMP_WAV, "rb") as r:
+        params = r.getparams()
+
+    with wave.open(TEMP_WAV, "rb") as r:
+        all_frames = r.readframes(r.getnframes())
+
+    with wave.open(TEMP_WAV, "wb") as out:
+        out.setparams(params)
+        out.writeframes(all_frames)
+        for t in texts[1:]:
+            _append_silence(out, pause_ms, params.framerate, params.sampwidth, params.nchannels)
+            _synthesize_to_file(voice, t, tmp_part)
+            with wave.open(tmp_part, "rb") as part:
+                out.writeframes(part.readframes(part.getnframes()))
+            os.remove(tmp_part)
+
     scale_wav_volume(TEMP_WAV)
     play_blank()
 

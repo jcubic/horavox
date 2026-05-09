@@ -386,19 +386,22 @@ class TestClockCommand:
         with mock.patch.object(
             sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:00", "--lang", "en"]
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                mock_speak.assert_called_once()
-                text = mock_speak.call_args[0][1]
-                assert "noon" in text.lower()
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep"):
+                        clock.main()
+                        mock_prep.assert_called_once()
+                        text = mock_prep.call_args[0][1]
+                        assert "noon" in text.lower()
 
     def test_debug_exit_not_at_slot(self, capsys):
         from horavox import clock
 
         with mock.patch.object(sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:01"]):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                mock_speak.assert_not_called()
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    clock.main()
+                    mock_prep.assert_not_called()
         out = capsys.readouterr().out
         assert "not at announcement slot" in out
 
@@ -410,9 +413,10 @@ class TestClockCommand:
             "argv",
             ["vox clock", "--debug", "--exit", "--time", "12:00", "--start", "13", "--end", "23"],
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                mock_speak.assert_not_called()
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    clock.main()
+                    mock_prep.assert_not_called()
         out = capsys.readouterr().out
         assert "outside range" in out
 
@@ -422,9 +426,11 @@ class TestClockCommand:
         with mock.patch.object(
             sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:30", "--freq", "30"]
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                mock_speak.assert_called_once()
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep"):
+                        clock.main()
+                        mock_prep.assert_called_once()
 
     def test_invalid_freq(self):
         from horavox import clock
@@ -458,16 +464,18 @@ class TestClockCommand:
                 "pl",
             ],
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                text = mock_speak.call_args[0][1]
-                assert "siedemnasta" in text
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep"):
+                        clock.main()
+                        text = mock_prep.call_args[0][1]
+                        assert "siedemnasta" in text
 
     def test_keyboard_interrupt(self):
         from horavox import clock
 
         with mock.patch.object(sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:00"]):
-            with mock.patch.object(clock, "speak", side_effect=KeyboardInterrupt):
+            with mock.patch.object(clock, "prepare_speech", side_effect=KeyboardInterrupt):
                 clock.main()  # should not raise
 
     def test_classic_12_hour(self):
@@ -476,10 +484,12 @@ class TestClockCommand:
         with mock.patch.object(
             sys, "argv", ["vox clock", "--debug", "--exit", "--time", "17:00", "--lang", "pl"]
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                text = mock_speak.call_args[0][1]
-                assert "piąta" in text  # 12-hour idiomatic
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep"):
+                        clock.main()
+                        text = mock_prep.call_args[0][1]
+                        assert "piąta" in text  # 12-hour idiomatic
 
     def test_beep_count_full_hour(self):
         from horavox import clock
@@ -487,10 +497,11 @@ class TestClockCommand:
         with mock.patch.object(
             sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:00", "--lang", "en"]
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                _, kwargs = mock_speak.call_args
-                assert kwargs.get("beep_count") == 2
+            with mock.patch.object(clock, "prepare_speech"):
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep") as mock_beep:
+                        clock.main()
+                        assert mock_beep.call_count == 2
 
     def test_beep_count_half_hour(self):
         from horavox import clock
@@ -498,10 +509,11 @@ class TestClockCommand:
         with mock.patch.object(
             sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:30", "--freq", "30"]
         ):
-            with mock.patch.object(clock, "speak") as mock_speak:
-                clock.main()
-                _, kwargs = mock_speak.call_args
-                assert kwargs.get("beep_count") == 1
+            with mock.patch.object(clock, "prepare_speech"):
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep") as mock_beep:
+                        clock.main()
+                        assert mock_beep.call_count == 1
 
     def test_background_mode(self):
         from horavox import clock
@@ -530,9 +542,11 @@ class TestClockCommand:
         args.voice = None
         now = datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
         time_offset = now - datetime.datetime.now()
-        with mock.patch.object(clock_mod, "speak") as mock_speak:
-            run_clock(args, lang, lang_data, time_offset, 0, 1439)
-            mock_speak.assert_called_once()
+        with mock.patch.object(clock_mod, "prepare_speech") as mock_prep:
+            with mock.patch.object(clock_mod, "play_speech"):
+                with mock.patch.object(clock_mod, "play_beep"):
+                    run_clock(args, lang, lang_data, time_offset, 0, 1439)
+                    mock_prep.assert_called_once()
 
     def test_parse_args_defaults(self):
         from horavox.clock import parse_args
@@ -605,8 +619,8 @@ class TestClockCommand:
             if call_count[0] > 3:
                 raise KeyboardInterrupt
 
-        with mock.patch.object(clock_mod, "speak"):
-            with mock.patch.object(clock_mod, "prepare_speech"):
+        with mock.patch.object(clock_mod, "prepare_speech"):
+            with mock.patch.object(clock_mod, "prepare_combined_speech"):
                 with mock.patch.object(clock_mod, "play_speech"):
                     with mock.patch.object(clock_mod, "play_beep"):
                         with mock.patch.object(clock_mod.time, "sleep", side_effect=fake_sleep):
@@ -620,11 +634,155 @@ class TestClockCommand:
         from horavox import clock
 
         with mock.patch.object(sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:00"]):
-            with mock.patch.object(clock, "speak", side_effect=RuntimeError("boom")):
+            with mock.patch.object(clock, "prepare_speech", side_effect=RuntimeError("boom")):
                 with mock.patch.object(clock, "log_error") as mock_log:
                     with pytest.raises(RuntimeError):
                         clock.main()
                     mock_log.assert_called_once()
+
+    def test_mapping_speaks_combined(self):
+        """When a mapping exists for the time, prepare_combined_speech is called."""
+        from horavox import clock
+
+        mapping_list = [{"time": "17:00", "message": "feed the cat"}]
+        with mock.patch.object(
+            sys, "argv", ["vox clock", "--debug", "--exit", "--time", "17:00", "--lang", "en"]
+        ):
+            with mock.patch("horavox.config.get_mapping", return_value=mapping_list):
+                with mock.patch(
+                    "horavox.config.load_config",
+                    return_value={"settings": {}, "alias": {}, "mapping": []},
+                ):
+                    with mock.patch.object(clock, "prepare_combined_speech") as mock_comb:
+                        with mock.patch.object(clock, "play_speech"):
+                            with mock.patch.object(clock, "play_beep"):
+                                clock.main()
+                                mock_comb.assert_called_once()
+                                texts = mock_comb.call_args[0][1]
+                                assert len(texts) == 2
+                                assert "feed the cat" in texts[1]
+
+    def test_mapping_time_false_speaks_only_message(self):
+        """With settings.mapping.time=false, only the message is spoken."""
+        from horavox import clock
+
+        mapping_list = [{"time": "17:00", "message": "feed the cat"}]
+        with mock.patch.object(
+            sys, "argv", ["vox clock", "--debug", "--exit", "--time", "17:00", "--lang", "en"]
+        ):
+            with mock.patch("horavox.config.get_mapping", return_value=mapping_list):
+                with mock.patch(
+                    "horavox.config.load_config",
+                    return_value={
+                        "settings": {"mapping": {"time": "false"}},
+                        "alias": {},
+                        "mapping": [],
+                    },
+                ):
+                    with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                        with mock.patch.object(clock, "play_speech"):
+                            with mock.patch.object(clock, "play_beep"):
+                                clock.main()
+                                mock_prep.assert_called_once()
+                                text = mock_prep.call_args[0][1]
+                                assert text == "feed the cat"
+
+    def test_no_mapping_speaks_time_only(self):
+        """Without mapping, normal prepare_speech is called with time text."""
+        from horavox import clock
+
+        with mock.patch.object(
+            sys, "argv", ["vox clock", "--debug", "--exit", "--time", "12:00", "--lang", "en"]
+        ):
+            with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                with mock.patch.object(clock, "play_speech"):
+                    with mock.patch.object(clock, "play_beep"):
+                        clock.main()
+                        mock_prep.assert_called_once()
+                        text = mock_prep.call_args[0][1]
+                        assert "noon" in text.lower()
+
+    def test_mapping_with_date_matches_weekday(self):
+        """Mapping with date field only fires on matching weekday."""
+        from horavox import clock
+
+        mapping_list = [{"time": "17:00", "message": "weekday msg", "date": ["weekdays"]}]
+        with mock.patch.object(
+            sys, "argv", ["vox clock", "--debug", "--exit", "--time", "17:00", "--lang", "en"]
+        ):
+            with mock.patch("horavox.config.get_mapping", return_value=mapping_list):
+                with mock.patch(
+                    "horavox.config.load_config",
+                    return_value={"settings": {}, "alias": {}, "mapping": []},
+                ):
+                    with mock.patch.object(clock, "prepare_combined_speech") as mock_comb:
+                        with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                            with mock.patch.object(clock, "play_speech"):
+                                with mock.patch.object(clock, "play_beep"):
+                                    clock.main()
+                                    # One of them should be called depending on current weekday
+                                    import datetime
+
+                                    if datetime.datetime.now().weekday() < 5:
+                                        mock_comb.assert_called_once()
+                                    else:
+                                        mock_prep.assert_called_once()
+
+    def test_mapping_without_message_no_combined(self):
+        """Mapping entry with time only (no message) just speaks the time."""
+        from horavox import clock
+
+        mapping_list = [{"time": "17:00"}]
+        with mock.patch.object(
+            sys, "argv", ["vox clock", "--debug", "--exit", "--time", "17:00", "--lang", "en"]
+        ):
+            with mock.patch("horavox.config.get_mapping", return_value=mapping_list):
+                with mock.patch(
+                    "horavox.config.load_config",
+                    return_value={"settings": {}, "alias": {}, "mapping": []},
+                ):
+                    with mock.patch.object(clock, "prepare_speech") as mock_prep:
+                        with mock.patch.object(clock, "play_speech"):
+                            with mock.patch.object(clock, "play_beep"):
+                                clock.main()
+                                mock_prep.assert_called_once()
+
+    def test_find_mapping_message_basic(self):
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "17:00", "message": "feed the cat"}]
+        assert _find_mapping_message(mapping, 17, 0, 0) == "feed the cat"
+
+    def test_find_mapping_message_no_match(self):
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "17:00", "message": "feed the cat"}]
+        assert _find_mapping_message(mapping, 18, 0, 0) is None
+
+    def test_find_mapping_message_empty(self):
+        from horavox.clock import _find_mapping_message
+
+        assert _find_mapping_message([], 17, 0, 0) is None
+
+    def test_find_mapping_message_with_date_match(self):
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "9:00", "message": "stand-up", "date": ["weekdays"]}]
+        assert _find_mapping_message(mapping, 9, 0, 0) == "stand-up"  # Monday
+        assert _find_mapping_message(mapping, 9, 0, 5) is None  # Saturday
+
+    def test_find_mapping_message_no_date_always_matches(self):
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "12:00", "message": "lunch"}]
+        for weekday in range(7):
+            assert _find_mapping_message(mapping, 12, 0, weekday) == "lunch"
+
+    def test_find_mapping_message_no_message_field(self):
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "17:00"}]
+        assert _find_mapping_message(mapping, 17, 0, 0) is None
 
 
 # ==================== config.py ====================
@@ -997,6 +1155,153 @@ class TestConfigCommand:
             with mock.patch("horavox.config.main") as m:
                 main()
                 m.assert_called_once()
+
+    def test_mapping_add(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add", "17:00", "feed the cat"]):
+            config.main()
+        out = capsys.readouterr().out
+        assert "17:00" in out
+        assert "feed the cat" in out
+        cfg = config.load_config()
+        assert len(cfg["mapping"]) == 1
+        assert cfg["mapping"][0]["time"] == "17:00"
+        assert cfg["mapping"][0]["message"] == "feed the cat"
+
+    def test_mapping_add_with_date(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox config", "mapping.add", "9:00", "stand-up", "--date", "weekdays"],
+        ):
+            config.main()
+        cfg = config.load_config()
+        assert cfg["mapping"][0]["date"] == ["weekdays"]
+        assert cfg["mapping"][0]["message"] == "stand-up"
+
+    def test_mapping_add_with_multiple_dates(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox config",
+                "mapping.add",
+                "8:00",
+                "weekend run",
+                "--date",
+                "saturday,sunday",
+            ],
+        ):
+            config.main()
+        cfg = config.load_config()
+        assert cfg["mapping"][0]["date"] == ["saturday", "sunday"]
+
+    def test_mapping_add_time_only(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add", "12:00"]):
+            config.main()
+        cfg = config.load_config()
+        assert cfg["mapping"][0] == {"time": "12:00"}
+
+    def test_mapping_add_invalid_date(self):
+        from horavox import config
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox config", "mapping.add", "9:00", "msg", "--date", "bogus"],
+        ):
+            with pytest.raises(SystemExit):
+                config.main()
+
+    def test_mapping_delete_by_index(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add", "17:00", "feed the cat"]):
+            config.main()
+        with mock.patch.object(sys, "argv", ["vox config", "--unset", "mapping.0"]):
+            config.main()
+        cfg = config.load_config()
+        assert len(cfg["mapping"]) == 0
+
+    def test_mapping_list(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add", "17:00", "feed the cat"]):
+            config.main()
+        with mock.patch.object(sys, "argv", ["vox config", "mapping"]):
+            config.main()
+        out = capsys.readouterr().out
+        assert "17:00" in out
+        assert "feed the cat" in out
+
+    def test_mapping_shows_in_list_all(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add", "17:00", "feed the cat"]):
+            config.main()
+        with mock.patch.object(sys, "argv", ["vox config"]):
+            config.main()
+        out = capsys.readouterr().out
+        assert "Mapping:" in out
+        assert "17:00" in out
+
+    def test_get_mapping_function(self):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add", "9:00", "stand-up"]):
+            config.main()
+        mapping = config.get_mapping()
+        assert len(mapping) == 1
+        assert mapping[0]["time"] == "9:00"
+        assert mapping[0]["message"] == "stand-up"
+
+    def test_set_mapping_time_setting(self, capsys):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "settings.mapping.time=false"]):
+            config.main()
+        cfg = config.load_config()
+        assert cfg["settings"]["mapping"]["time"] == "false"
+
+    def test_mapping_time_invalid_value(self):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "settings.mapping.time=yes"]):
+            with pytest.raises(SystemExit):
+                config.main()
+
+    def test_mapping_add_no_args(self):
+        from horavox import config
+
+        with mock.patch.object(sys, "argv", ["vox config", "mapping.add"]):
+            with pytest.raises(SystemExit):
+                config.main()
+
+    def test_mapping_migrate_dict_to_list(self):
+        import json
+
+        from horavox import config
+
+        with open(self.config_path, "w") as f:
+            json.dump(
+                {
+                    "settings": {},
+                    "alias": {},
+                    "mapping": {"17:00": "feed the cat"},
+                },
+                f,
+            )
+        cfg = config.load_config()
+        assert isinstance(cfg["mapping"], list)
+        assert cfg["mapping"][0]["time"] == "17:00"
+        assert cfg["mapping"][0]["message"] == "feed the cat"
 
 
 class TestAliasDispatch:
