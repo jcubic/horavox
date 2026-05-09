@@ -23,6 +23,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Flexible scheduling** -- restrict announcements to a time range (e.g., 7:00--22:00)
 - **Configurable interval** -- announce every N minutes with `--freq` (e.g., every 30 min)
 - **Volume control** -- set volume 0--100% with `--volume`
+- **Scheduled announcements** -- speak the time (or a custom message) at specific times with `vox at`
 - **Background mode** -- run as a daemon with `--background`, stop with `--stop`
 - **Autostart service** -- add as a system service with `vox service add`, runs on login
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
@@ -70,7 +71,7 @@ vox <command> [options]
 | `vox list` | List running background instances |
 | `vox stop` | Stop running background instances |
 | `vox voice` | Manage Piper voice models |
-| `vox at` | Speak the time at specified times (one-shot or recurring) |
+| `vox at` | Speak the time or a custom message at specified times |
 | `vox config` | Get or set default configuration |
 | `vox service` | Manage autostart service (add/delete/list/start/status) |
 | `vox completion` | Generate shell completion scripts |
@@ -156,17 +157,26 @@ vox at 12:55 --repeat sunday,wednesday        # specific days of the week
 vox at 9:00,18:00 --repeat weekdays           # weekdays only
 vox at 8:00 --repeat weekends --lang pl       # Polish, weekends only
 
+# Custom message (speak text instead of the time)
+vox at 12:00 --repeat weekdays -m "Time for lunch"
+vox at 9:00 --message "Stand-up meeting in 5 minutes"
+
 # Common flags
 vox at 9:00 --repeat everyday --background    # run as a daemon
 vox at 9:00 --repeat everyday --volume 30     # quiet
 ```
 
-Times are comma-separated in `HH:MM` format. The `--date` flag accepts day names (`monday`–`sunday`) or exact dates (`YYYY-MM-DD`), comma-separated; day names always resolve to the next occurrence (never today). The `--repeat` flag accepts day keywords: `monday`–`sunday`, `everyday`, `weekdays`, `weekends`. `--date` and `--repeat` are mutually exclusive. Without either, the process runs for today and exits after the last scheduled time. Supports the same `--lang`, `--voice`, `--mode`, `--volume`, `--background`, and `--debug` flags as `vox clock`.
+Times are comma-separated in `HH:MM` format. The `--date` flag accepts day names (`monday`–`sunday`) or exact dates (`YYYY-MM-DD`), comma-separated; day names always resolve to the next occurrence (never today). The `--repeat` flag accepts day keywords: `monday`–`sunday`, `everyday`, `weekdays`, `weekends`. `--date` and `--repeat` are mutually exclusive. Without either, the process runs for today and exits after the last scheduled time.
+
+Use `--message` / `-m` to speak custom text instead of the current time — useful for reminders. Beeps still play as usual.
+
+Supports the same `--lang`, `--voice`, `--mode`, `--volume`, `--background`, and `--debug` flags as `vox clock`.
 
 Works with `vox service add` too:
 
 ```bash
 vox service add "at 12:55 --repeat sunday,wednesday --volume 50"
+vox service add "at 9:00 --repeat weekdays -m 'Stand-up meeting'"
 ```
 
 ### vox config

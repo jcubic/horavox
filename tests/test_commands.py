@@ -1365,6 +1365,91 @@ class TestAtCommand:
                 text = mock_speak.call_args[0][1]
                 assert "siedemnasta" in text
 
+    def test_message_option_speaks_custom_text(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--repeat",
+                "everyday",
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+                "--message",
+                "Time for lunch",
+            ],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                mock_speak.assert_called_once()
+                text = mock_speak.call_args[0][1]
+                assert text == "Time for lunch"
+
+    def test_message_short_flag(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+                "-m",
+                "Hello world",
+            ],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                mock_speak.assert_called_once()
+                text = mock_speak.call_args[0][1]
+                assert text == "Hello world"
+
+    def test_message_oneshot_exit(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox at", "12:00", "--debug", "--exit", "--time", "12:00", "-m", "Reminder"],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                text = mock_speak.call_args[0][1]
+                assert text == "Reminder"
+
+    def test_no_message_speaks_time(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--repeat",
+                "everyday",
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+                "--lang",
+                "en",
+            ],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                text = mock_speak.call_args[0][1]
+                assert "noon" in text.lower()
+
     def test_keyboard_interrupt(self):
         from horavox import at
 

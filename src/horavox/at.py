@@ -186,6 +186,14 @@ def setup_parser(parser):
         help="Volume level 0-100 percent (default: 100, 0 = no sound)",
     )
     parser.add_argument(
+        "--message",
+        "-m",
+        type=str,
+        default=None,
+        metavar="TEXT",
+        help="Speak custom text instead of the current time",
+    )
+    parser.add_argument(
         "--nosound",
         action="store_true",
         help="Same as --volume 0 — skip voice loading and audio playback",
@@ -215,6 +223,12 @@ def _load_voice(args, lang):
     from piper import PiperVoice
 
     return PiperVoice.load(voice_path)
+
+
+def _get_text(args, lang_data, hour, minute):
+    if args.message:
+        return args.message
+    return get_spoken_time(lang_data, hour, minute)
 
 
 def run_at_once(args, lang, lang_data, time_offset, schedule, target_dates):
@@ -261,7 +275,7 @@ def run_at_once(args, lang, lang_data, time_offset, schedule, target_dates):
 
         if in_window and target != last_announced:
             last_announced = target
-            text = get_spoken_time(lang_data, target.hour, target.minute)
+            text = _get_text(args, lang_data, target.hour, target.minute)
             prepare_speech(voice, text)
             remaining = (target - get_now()).total_seconds()
             if remaining > 0:
@@ -292,7 +306,7 @@ def run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days):
         weekday = now.weekday()
         frac_sec = now.second + now.microsecond / 1_000_000
         if weekday in repeat_days and (now.hour, now.minute) in schedule and frac_sec < 5:
-            text = get_spoken_time(lang_data, now.hour, now.minute)
+            text = _get_text(args, lang_data, now.hour, now.minute)
             speak(voice, text, beep_count=beep_count_for_minute(now.minute))
         else:
             times_str = ", ".join(f"{h}:{m:02d}" for h, m in schedule)
@@ -324,7 +338,7 @@ def run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days):
 
         if in_window and target != last_announced:
             last_announced = target
-            text = get_spoken_time(lang_data, target.hour, target.minute)
+            text = _get_text(args, lang_data, target.hour, target.minute)
             prepare_speech(voice, text)
             remaining = (target - get_now()).total_seconds()
             if remaining > 0:
@@ -449,7 +463,7 @@ def _main():
             frac_sec = now.second + now.microsecond / 1_000_000
             if now.date() in target_dates and (now.hour, now.minute) in schedule and frac_sec < 5:
                 voice = _load_voice(args, lang)
-                text = get_spoken_time(lang_data, now.hour, now.minute)
+                text = _get_text(args, lang_data, now.hour, now.minute)
                 speak(voice, text, beep_count=beep_count_for_minute(now.minute))
             else:
                 times_str = ", ".join(f"{h}:{m:02d}" for h, m in schedule)
