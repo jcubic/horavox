@@ -1450,6 +1450,62 @@ class TestAtCommand:
                 text = mock_speak.call_args[0][1]
                 assert "noon" in text.lower()
 
+    def test_message_repeat_loop(self):
+        """--message in the repeat main loop (not --exit) speaks custom text."""
+        import datetime
+
+        from horavox import at as at_mod
+        from horavox.at import run_at_repeat
+
+        core.configure(debug=True)
+        lang_data, lang = core.load_language_data("en", "classic")
+        args = mock.MagicMock()
+        args.exit = False
+        args.time = None
+        args.voice = None
+        args.message = "Take a break"
+        schedule = [(12, 0)]
+        repeat_days = set(range(7))
+        now = datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        time_offset = now - datetime.datetime.now()
+        call_count = [0]
+
+        def fake_sleep(t):
+            call_count[0] += 1
+            if call_count[0] > 3:
+                raise KeyboardInterrupt
+
+        with mock.patch.object(at_mod, "speak"):
+            with mock.patch.object(at_mod, "prepare_speech") as mock_prep:
+                with mock.patch.object(at_mod, "play_speech"):
+                    with mock.patch.object(at_mod, "play_beep"):
+                        with mock.patch.object(at_mod.time, "sleep", side_effect=fake_sleep):
+                            try:
+                                run_at_repeat(
+                                    args, lang, lang_data, time_offset, schedule, repeat_days
+                                )
+                            except KeyboardInterrupt:
+                                pass
+        if mock_prep.call_count > 0:
+            text = mock_prep.call_args[0][1]
+            assert text == "Take a break"
+
+    def test_get_text_with_message(self):
+        from horavox.at import _get_text
+
+        args = mock.MagicMock()
+        args.message = "Hello world"
+        assert _get_text(args, {}, 12, 0) == "Hello world"
+
+    def test_get_text_without_message(self):
+        from horavox.at import _get_text
+
+        lang_data, _ = core.load_language_data("en", "classic")
+        args = mock.MagicMock()
+        args.message = None
+        text = _get_text(args, lang_data, 12, 0)
+        assert "noon" in text.lower()
+
     def test_keyboard_interrupt(self):
         from horavox import at
 
@@ -1725,6 +1781,148 @@ class TestAtCommand:
 
         result = parse_date_values("2026-05-10,2026-05-10")
         assert result == [datetime.date(2026, 5, 10)]
+
+    def test_parse_date_values_invalid_string(self):
+        from horavox.at import parse_date_values
+
+        with pytest.raises(SystemExit):
+            parse_date_values("not-a-date")
+
+    def test_parse_date_values_sorted(self):
+        import datetime
+
+        from horavox.at import parse_date_values
+
+        result = parse_date_values("2026-12-25,2026-05-10")
+        assert result == [datetime.date(2026, 5, 10), datetime.date(2026, 12, 25)]
+
+    def test_date_with_exit_at_scheduled_time(self):
+        import datetime
+
+        from horavox import at
+
+        target = datetime.date.today()
+        date_str = target.strftime("%Y-%m-%d")
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--date",
+                date_str,
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+                "--lang",
+                "en",
+            ],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                mock_speak.assert_called_once()
+
+    def test_date_with_exit_wrong_date(self, capsys):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--date",
+                "2020-01-01",
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+            ],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                mock_speak.assert_not_called()
+        out = capsys.readouterr().out
+        assert "not at a scheduled time" in out
+
+    def test_date_background_mode(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox at", "12:00", "--date", "2026-12-25", "--background", "--nosound"],
+        ):
+            with mock.patch.object(at, "Daemonize") as mock_daemon:
+                mock_instance = mock.MagicMock()
+                mock_daemon.return_value = mock_instance
+                at.main()
+                mock_daemon.assert_called_once()
+                mock_instance.start.assert_called_once()
+
+    def test_run_at_once_multiple_dates(self, capsys):
+        import datetime
+
+        from horavox import at as at_mod
+        from horavox.at import run_at_once
+
+        core.configure(debug=True)
+        lang_data, lang = core.load_language_data("en", "classic")
+        args = mock.MagicMock()
+        args.time = None
+        args.voice = None
+        args.message = None
+        schedule = [(12, 0)]
+        today = datetime.date.today()
+        target_dates = [today, today + datetime.timedelta(days=1)]
+        now = datetime.datetime.combine(today, datetime.time(12, 0))
+        time_offset = now - datetime.datetime.now()
+        call_count = [0]
+
+        def fake_sleep(t):
+            call_count[0] += 1
+            if call_count[0] > 3:
+                raise KeyboardInterrupt
+
+        with mock.patch.object(at_mod, "prepare_speech") as mock_prep:
+            with mock.patch.object(at_mod, "play_speech"):
+                with mock.patch.object(at_mod, "play_beep"):
+                    with mock.patch.object(at_mod.time, "sleep", side_effect=fake_sleep):
+                        try:
+                            run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
+                        except KeyboardInterrupt:
+                            pass
+        assert mock_prep.call_count >= 1
+
+    def test_message_with_date_exit(self):
+        import datetime
+
+        from horavox import at
+
+        target = datetime.date.today()
+        date_str = target.strftime("%Y-%m-%d")
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--date",
+                date_str,
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+                "-m",
+                "Meeting time",
+            ],
+        ):
+            with mock.patch.object(at, "speak") as mock_speak:
+                at.main()
+                mock_speak.assert_called_once()
+                text = mock_speak.call_args[0][1]
+                assert text == "Meeting time"
 
     def test_next_weekday_never_today(self):
         import datetime

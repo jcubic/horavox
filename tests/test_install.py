@@ -459,6 +459,34 @@ class TestServiceStatus:
         assert "Service: stopped" in out
         assert "Instances: none" in out
 
+    def test_status_running_no_instances(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = True
+        platform.is_running.return_value = True
+        with mock.patch.object(service, "list_instances", return_value=[]):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_status()
+        out = capsys.readouterr().out
+        assert "Service: running" in out
+        assert "Instances: none" in out
+
+    def test_status_stopped_with_instances(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = True
+        platform.is_running.return_value = False
+        instances = [{"id": "abc123", "command": "clock --lang en"}]
+        with mock.patch.object(service, "list_instances", return_value=instances):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_status()
+        out = capsys.readouterr().out
+        assert "Service: stopped" in out
+        assert "Instances: 1" in out
+        assert "abc123" in out
+
     def test_status_not_installed(self, capsys):
         from horavox import service
 
