@@ -6,6 +6,8 @@
 * add `vox config` command
 * add shell completion
 * add update available notification message
+* add `--message` option to `vox now` (an new `vox at`)
+* improve `vox voice` TUI
 ### Bugfix
 * fix cleaning old session files
 

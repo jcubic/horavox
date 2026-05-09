@@ -2169,6 +2169,88 @@ class TestVoiceCommand:
         assert any("v1" in line for line in lines)
         assert not any("status" in line.lower() for line in lines)
 
+    def test_get_default_voice_key_config_voice(self):
+        from horavox.voice import get_default_voice_key
+
+        voices = [
+            {"key": "pl_PL-darkman-medium", "installed": True},
+            {"key": "pl_PL-mc_speech-medium", "installed": True},
+        ]
+        assert get_default_voice_key(voices, "pl_PL-mc_speech-medium") == "pl_PL-mc_speech-medium"
+
+    def test_get_default_voice_key_config_not_in_list(self):
+        from horavox.voice import get_default_voice_key
+
+        voices = [
+            {"key": "pl_PL-darkman-medium", "installed": True},
+        ]
+        assert get_default_voice_key(voices, "nonexistent-voice") == "pl_PL-darkman-medium"
+
+    def test_get_default_voice_key_prefers_medium(self):
+        from horavox.voice import get_default_voice_key
+
+        voices = [
+            {"key": "en_US-lessac-high", "installed": True},
+            {"key": "en_US-lessac-medium", "installed": True},
+            {"key": "en_US-lessac-low", "installed": True},
+        ]
+        assert get_default_voice_key(voices) == "en_US-lessac-medium"
+
+    def test_get_default_voice_key_falls_back_to_first_installed(self):
+        from horavox.voice import get_default_voice_key
+
+        voices = [
+            {"key": "en_US-lessac-high", "installed": True},
+            {"key": "en_US-lessac-low", "installed": True},
+        ]
+        assert get_default_voice_key(voices) == "en_US-lessac-high"
+
+    def test_get_default_voice_key_none_installed(self):
+        from horavox.voice import get_default_voice_key
+
+        voices = [
+            {"key": "en_US-lessac-medium", "installed": False},
+        ]
+        assert get_default_voice_key(voices) is None
+
+    def test_render_list_shows_default_marker(self):
+        from horavox.voice import render_list
+
+        voices = [
+            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": True},
+            {"key": "en_US-other-high", "quality": "high", "size_mb": 100, "installed": False},
+        ]
+        lines = render_list(voices, 0, "English", "en", default_key="en_US-lessac-medium")
+        text = "\n".join(lines)
+        assert "[D]" in text
+        assert "[*]" in text
+
+    def test_render_list_no_default_when_none(self):
+        from horavox.voice import render_list
+
+        voices = [
+            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": False},
+        ]
+        lines = render_list(voices, 0, "English", "en", default_key=None)
+        text = "\n".join(lines)
+        assert "[D]" not in text
+
+    def test_cmd_list_shows_default_marker(self, capsys):
+        from horavox.voice import cmd_list
+
+        with mock.patch.object(core, "is_voice_installed", return_value=True):
+            cmd_list("pl")
+        out = capsys.readouterr().out
+        assert "[D]" in out
+
+    def test_cmd_list_config_voice_default(self, capsys):
+        from horavox.voice import cmd_list
+
+        with mock.patch.object(core, "is_voice_installed", return_value=True):
+            cmd_list("pl", config_voice="pl_PL-darkman-medium")
+        out = capsys.readouterr().out
+        assert "[D]" in out
+
     def test_render_list_with_status(self):
         from horavox.voice import render_list
 
@@ -2389,6 +2471,65 @@ class TestVoiceCommand:
                         with mock.patch.object(voice, "uninstall_voice") as mock_rm:
                             voice.cmd_interactive("en")
                             mock_rm.assert_not_called()
+
+    def test_render_list_has_enter_hint(self):
+        from horavox.voice import render_list
+
+        voices = [{"key": "v1", "quality": "low", "size_mb": 30, "installed": False}]
+        lines = render_list(voices, 0, "Test", "tt")
+        text = "\n".join(lines)
+        assert "Enter" in text
+        assert "Test" in text
+
+    def test_speak_with_voice(self):
+        from horavox.voice import _speak_with_voice
+
+        mock_piper = mock.MagicMock()
+        with mock.patch.dict("sys.modules", {"piper": mock_piper}):
+            with mock.patch("horavox.voice.speak") as mock_speak:
+                with mock.patch("horavox.voice.load_language_data") as mock_lang:
+                    mock_lang.return_value = ({"patterns": {}}, "en")
+                    with mock.patch("horavox.voice.get_spoken_time", return_value="three o'clock"):
+                        _speak_with_voice("en_US-lessac-medium", "en")
+            mock_piper.PiperVoice.load.assert_called_once()
+            mock_speak.assert_called_once()
+
+    def test_enter_speaks_installed_voice(self):
+        from horavox import voice
+
+        voices = [
+            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": True},
+        ]
+        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
+            with mock.patch.object(voice, "get_lang_name", return_value="English"):
+                with mock.patch.object(voice, "getch", side_effect=["\r", "q"]):
+                    with mock.patch.object(voice, "draw"):
+                        with mock.patch.object(voice, "_speak_with_voice") as mock_speak:
+                            voice.cmd_interactive("en")
+                            mock_speak.assert_called_once_with(
+                                "en_US-lessac-medium", "en", "classic"
+                            )
+
+    def test_enter_installs_then_speaks(self):
+        from horavox import voice
+
+        voices = [
+            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": False},
+        ]
+        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
+            with mock.patch.object(voice, "get_lang_name", return_value="English"):
+                with mock.patch.object(voice, "getch", side_effect=["\r", "q"]):
+                    with mock.patch.object(voice, "draw"):
+                        with mock.patch.object(voice, "download_voice") as mock_dl:
+                            with mock.patch.object(voice, "_speak_with_voice") as mock_speak:
+                                voice.cmd_interactive("en")
+                                mock_dl.assert_called_once_with(
+                                    "en_US-lessac-medium", progress_cb=voice.progress_bar
+                                )
+                                mock_speak.assert_called_once_with(
+                                    "en_US-lessac-medium", "en", "classic"
+                                )
+                                assert voices[0]["installed"] is True
 
 
 # ==================== completion.py ====================
