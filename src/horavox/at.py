@@ -93,6 +93,32 @@ def parse_date(value):
         sys.exit(1)
 
 
+def _next_weekday(day_num):
+    """Return the date of the next occurrence of the given weekday (never today)."""
+    today = datetime.date.today()
+    days_ahead = day_num - today.weekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    return today + datetime.timedelta(days=days_ahead)
+
+
+def parse_date_values(value):
+    """Parse comma-separated date values (YYYY-MM-DD or day names) into sorted list of dates."""
+    dates = set()
+    for part in value.split(","):
+        part = part.strip().lower()
+        if not part:
+            continue
+        if part in DAY_NAMES:
+            dates.add(_next_weekday(DAY_NAMES[part]))
+        else:
+            dates.add(parse_date(part))
+    if not dates:
+        print("Error: --date requires at least one value.")
+        sys.exit(1)
+    return sorted(dates)
+
+
 def setup_parser(parser):
     parser.add_argument(
         "times",
@@ -100,10 +126,11 @@ def setup_parser(parser):
         help="Comma-separated times to announce (e.g. 12:55 or 9:00,12:00,18:00)",
     )
     parser.add_argument(
-        "date",
-        nargs="?",
+        "--date",
+        type=str,
         default=None,
-        help="Date to announce on (YYYY-MM-DD, default: today)",
+        metavar="DATE",
+        help="Date(s) to announce on: YYYY-MM-DD or day name (e.g. friday,2026-05-10)",
     )
     parser.add_argument(
         "--repeat",
@@ -190,8 +217,8 @@ def _load_voice(args, lang):
     return PiperVoice.load(voice_path)
 
 
-def run_at_once(args, lang, lang_data, time_offset, schedule, target_date):
-    """One-shot mode: wait for the next matching time on target_date, speak, exit."""
+def run_at_once(args, lang, lang_data, time_offset, schedule, target_dates):
+    """One-shot mode: wait for matching times on target date(s), speak, exit."""
 
     def get_now():
         return datetime.datetime.now() + time_offset
@@ -200,20 +227,23 @@ def run_at_once(args, lang, lang_data, time_offset, schedule, target_date):
 
     now = get_now()
     targets = []
-    for h, m in schedule:
-        t = datetime.datetime.combine(target_date, datetime.time(h, m))
-        if t > now - datetime.timedelta(seconds=5):
-            targets.append(t)
+    for td in target_dates:
+        for h, m in schedule:
+            t = datetime.datetime.combine(td, datetime.time(h, m))
+            if t > now - datetime.timedelta(seconds=5):
+                targets.append(t)
+    targets.sort()
 
     if not targets:
         times_str = ", ".join(f"{h}:{m:02d}" for h, m in schedule)
-        log(f"All scheduled times ({times_str}) have passed for {target_date}.")
+        dates_str = ", ".join(str(d) for d in target_dates)
+        log(f"All scheduled times ({times_str}) have passed for {dates_str}.")
         return
 
-    target = targets[0]
     times_str = ", ".join(f"{h}:{m:02d}" for h, m in schedule)
+    dates_str = ", ".join(str(d) for d in target_dates)
     log(f"\nHoraVox waiting (lang={lang})")
-    log(f"  Schedule: {times_str} on {target_date}")
+    log(f"  Schedule: {times_str} on {dates_str}")
     if args.time:
         log(f"  Simulated start time: {args.time}")
     log("\n  (Ctrl+C to stop)")
@@ -366,7 +396,7 @@ def _main():
     schedule = parse_times(args.times)
 
     if args.date and args.repeat:
-        print("Error: --repeat and a specific date cannot be used together.")
+        print("Error: --repeat and --date cannot be used together.")
         sys.exit(1)
 
     if args.time:
@@ -412,12 +442,12 @@ def _main():
 
         run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days)
     else:
-        target_date = parse_date(args.date) if args.date else datetime.date.today()
+        target_dates = parse_date_values(args.date) if args.date else [datetime.date.today()]
 
         if args.exit:
             now = datetime.datetime.now() + time_offset
             frac_sec = now.second + now.microsecond / 1_000_000
-            if now.date() == target_date and (now.hour, now.minute) in schedule and frac_sec < 5:
+            if now.date() in target_dates and (now.hour, now.minute) in schedule and frac_sec < 5:
                 voice = _load_voice(args, lang)
                 text = get_spoken_time(lang_data, now.hour, now.minute)
                 speak(voice, text, beep_count=beep_count_for_minute(now.minute))
@@ -439,7 +469,7 @@ def _main():
             def daemon_action_once():
                 create_session(os.getpid(), session_id)
                 try:
-                    run_at_once(args, lang, lang_data, time_offset, schedule, target_date)
+                    run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
                 except Exception:
                     log_error()
                     raise
@@ -456,7 +486,7 @@ def _main():
             daemon.start()
             return
 
-        run_at_once(args, lang, lang_data, time_offset, schedule, target_date)
+        run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
 
 
 if __name__ == "__main__":

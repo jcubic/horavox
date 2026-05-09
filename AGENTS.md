@@ -57,6 +57,7 @@ tests/
 | `vox service delete` | Delete installed service instances (`--all` for all) |
 | `vox service list` | List installed service instances |
 | `vox service start` | Start the service (register and run) |
+| `vox service status` | Show service and instance status |
 | `vox service run` | Internal — manager process that supervises installed instances |
 
 `vox-<name>` executables in `$PATH` work as `vox <name>` (git-style plugins).

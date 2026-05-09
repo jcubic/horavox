@@ -72,7 +72,7 @@ vox <command> [options]
 | `vox voice` | Manage Piper voice models |
 | `vox at` | Speak the time at specified times (one-shot or recurring) |
 | `vox config` | Get or set default configuration |
-| `vox service` | Manage autostart service (add/delete/list/start) |
+| `vox service` | Manage autostart service (add/delete/list/start/status) |
 | `vox completion` | Generate shell completion scripts |
 
 Run `vox <command> --help` for command-specific options.
@@ -145,7 +145,9 @@ Speak the time at specific times — one-shot or recurring like Google Calendar:
 ```bash
 # One-shot (waits, speaks, exits)
 vox at 12:55                                  # speak at 12:55 today
-vox at 12:55 2026-05-10                       # speak at 12:55 on a specific date
+vox at 12:55 --date 2026-05-10               # speak at 12:55 on a specific date
+vox at 12:55 --date friday                   # speak at 12:55 next Friday (never today)
+vox at 12:55 --date friday,2026-12-25        # multiple dates (day names + exact)
 vox at 9:00,12:00,18:00                       # multiple times today
 
 # Recurring (persistent loop)
@@ -159,7 +161,7 @@ vox at 9:00 --repeat everyday --background    # run as a daemon
 vox at 9:00 --repeat everyday --volume 30     # quiet
 ```
 
-Times are comma-separated in `HH:MM` format. Day keywords: `monday`–`sunday`, `everyday`, `weekdays`, `weekends`. Without `--repeat`, the process exits after the last scheduled time passes. Supports the same `--lang`, `--voice`, `--mode`, `--volume`, `--background`, and `--debug` flags as `vox clock`.
+Times are comma-separated in `HH:MM` format. The `--date` flag accepts day names (`monday`–`sunday`) or exact dates (`YYYY-MM-DD`), comma-separated; day names always resolve to the next occurrence (never today). The `--repeat` flag accepts day keywords: `monday`–`sunday`, `everyday`, `weekdays`, `weekends`. `--date` and `--repeat` are mutually exclusive. Without either, the process runs for today and exits after the last scheduled time. Supports the same `--lang`, `--voice`, `--mode`, `--volume`, `--background`, and `--debug` flags as `vox clock`.
 
 Works with `vox service add` too:
 
@@ -216,6 +218,7 @@ vox service delete <id>                # delete a specific instance
 vox service delete --all               # delete all instances
 vox service delete                     # interactive selection if multiple
 vox service start                      # start the service manually
+vox service status                     # show service and instance status
 ```
 
 The quoted argument is any valid `vox` subcommand with its flags. The `--background` flag is stripped automatically since the service manager handles that.

@@ -21,6 +21,7 @@ SUBCOMMANDS = {
     "delete": "Delete installed service instances",
     "list": "List installed service instances",
     "start": "Start the service (register and run)",
+    "status": "Show service and instance status",
     "run": "Run the service manager (internal)",
 }
 
@@ -36,6 +37,7 @@ def setup_parser(parser):
     )
     subs.add_parser("list", help=SUBCOMMANDS["list"])
     subs.add_parser("start", help=SUBCOMMANDS["start"])
+    subs.add_parser("status", help=SUBCOMMANDS["status"])
     subs.add_parser("run", help=argparse.SUPPRESS)
 
 
@@ -76,6 +78,8 @@ def _main():
         _cmd_list()
     elif subcmd == "start":
         _cmd_start()
+    elif subcmd == "status":
+        _cmd_status()
     elif subcmd == "run":
         _cmd_run()
     else:
@@ -237,6 +241,34 @@ def _cmd_start():
         return
     platform.start()
     print("Service started.")
+
+
+# ==================== status ====================
+
+
+def _cmd_status():
+    platform = get_platform()
+    registered = platform.is_registered()
+    running = platform.is_running() if registered else False
+    instances = list_instances()
+
+    if running:
+        print("Service: running")
+    elif registered:
+        print("Service: stopped")
+    else:
+        print("Service: not installed")
+
+    if not instances:
+        print("Instances: none")
+        return
+
+    print(f"Instances: {len(instances)}")
+    print()
+    print(f"  {'ID':<8} {'Command'}")
+    print(f"  {'—' * 8} {'—' * 40}")
+    for inst in instances:
+        print(f"  {inst['id']:<8} {inst['command']}")
 
 
 # ==================== run (internal manager) ====================

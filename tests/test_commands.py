@@ -1430,7 +1430,7 @@ class TestAtCommand:
     def test_parse_args_with_date(self):
         from horavox.at import parse_args
 
-        with mock.patch.object(sys, "argv", ["vox at", "9:00", "2026-05-10"]):
+        with mock.patch.object(sys, "argv", ["vox at", "9:00", "--date", "2026-05-10"]):
             args = parse_args()
         assert args.times == "9:00"
         assert args.date == "2026-05-10"
@@ -1590,11 +1590,84 @@ class TestAtCommand:
         with pytest.raises(SystemExit):
             parse_date("not-a-date")
 
+    def test_parse_date_values_exact_date(self):
+        import datetime
+
+        from horavox.at import parse_date_values
+
+        result = parse_date_values("2026-05-10")
+        assert result == [datetime.date(2026, 5, 10)]
+
+    def test_parse_date_values_multiple_dates(self):
+        import datetime
+
+        from horavox.at import parse_date_values
+
+        result = parse_date_values("2026-05-10,2026-05-12")
+        assert result == [datetime.date(2026, 5, 10), datetime.date(2026, 5, 12)]
+
+    def test_parse_date_values_day_name(self):
+        import datetime
+
+        from horavox.at import parse_date_values
+
+        result = parse_date_values("monday")
+        assert len(result) == 1
+        assert result[0].weekday() == 0
+        assert result[0] > datetime.date.today()
+
+    def test_parse_date_values_mixed(self):
+        import datetime
+
+        from horavox.at import parse_date_values
+
+        result = parse_date_values("friday,2026-12-25")
+        assert len(result) == 2
+        friday = [d for d in result if d.weekday() == 4][0]
+        assert friday > datetime.date.today()
+        assert datetime.date(2026, 12, 25) in result
+
+    def test_parse_date_values_empty_error(self):
+        from horavox.at import parse_date_values
+
+        with pytest.raises(SystemExit):
+            parse_date_values("")
+
+    def test_parse_date_values_deduplicates(self):
+        import datetime
+
+        from horavox.at import parse_date_values
+
+        result = parse_date_values("2026-05-10,2026-05-10")
+        assert result == [datetime.date(2026, 5, 10)]
+
+    def test_next_weekday_never_today(self):
+        import datetime
+
+        from horavox.at import _next_weekday
+
+        today = datetime.date.today()
+        result = _next_weekday(today.weekday())
+        assert result > today
+        assert result == today + datetime.timedelta(days=7)
+
+    def test_next_weekday_tomorrow(self):
+        import datetime
+
+        from horavox.at import _next_weekday
+
+        today = datetime.date.today()
+        tomorrow_weekday = (today.weekday() + 1) % 7
+        result = _next_weekday(tomorrow_weekday)
+        assert result == today + datetime.timedelta(days=1)
+
     def test_date_and_repeat_error(self, capsys):
         from horavox import at
 
         with mock.patch.object(
-            sys, "argv", ["vox at", "12:00", "2026-05-10", "--repeat", "everyday", "--debug"]
+            sys,
+            "argv",
+            ["vox at", "12:00", "--date", "2026-05-10", "--repeat", "everyday", "--debug"],
         ):
             with pytest.raises(SystemExit) as exc:
                 at.main()
@@ -1605,7 +1678,7 @@ class TestAtCommand:
     def test_oneshot_past_time_exits(self, capsys):
         from horavox import at
 
-        with mock.patch.object(sys, "argv", ["vox at", "0:01", "2020-01-01", "--debug"]):
+        with mock.patch.object(sys, "argv", ["vox at", "0:01", "--date", "2020-01-01", "--debug"]):
             at.main()
         out = capsys.readouterr().out
         assert "passed" in out

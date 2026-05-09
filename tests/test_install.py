@@ -422,6 +422,64 @@ class TestServiceStart:
         platform.start.assert_called_once()
 
 
+# ==================== service status ====================
+
+
+class TestServiceStatus:
+    def test_status_running_with_instances(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = True
+        platform.is_running.return_value = True
+        instances = [
+            {"id": "abc123", "command": "clock --lang pl"},
+            {"id": "def456", "command": "at 12:00 --repeat everyday"},
+        ]
+        with mock.patch.object(service, "list_instances", return_value=instances):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_status()
+        out = capsys.readouterr().out
+        assert "Service: running" in out
+        assert "Instances: 2" in out
+        assert "abc123" in out
+        assert "def456" in out
+        assert "clock --lang pl" in out
+
+    def test_status_stopped(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = True
+        platform.is_running.return_value = False
+        with mock.patch.object(service, "list_instances", return_value=[]):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_status()
+        out = capsys.readouterr().out
+        assert "Service: stopped" in out
+        assert "Instances: none" in out
+
+    def test_status_not_installed(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = False
+        with mock.patch.object(service, "list_instances", return_value=[]):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_status()
+        out = capsys.readouterr().out
+        assert "Service: not installed" in out
+        platform.is_running.assert_not_called()
+
+    def test_status_dispatches(self):
+        from horavox import service
+
+        with mock.patch.object(sys, "argv", ["vox service", "status"]):
+            with mock.patch.object(service, "_cmd_status") as m:
+                service._main()
+                m.assert_called_once()
+
+
 # ==================== service dispatch ====================
 
 
@@ -436,6 +494,7 @@ class TestServiceDispatch:
         assert "delete" in out
         assert "list" in out
         assert "start" in out
+        assert "status" in out
 
     def test_help_flag(self, capsys):
         from horavox import service
