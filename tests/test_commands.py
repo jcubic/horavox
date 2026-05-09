@@ -3052,3 +3052,771 @@ class TestUpdateCheck:
                     with mock.patch("horavox.update.check_for_update") as mock_check:
                         main()
                     mock_check.assert_not_called()
+
+    def test_supports_color_no_color_env(self):
+        from horavox.update import _supports_color
+
+        with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
+            assert _supports_color() is False
+
+    def test_supports_color_force_color_env(self):
+        from horavox.update import _supports_color
+
+        with mock.patch.dict(os.environ, {"FORCE_COLOR": "1"}, clear=False):
+            with mock.patch.dict(os.environ, {}, clear=False):
+                env = os.environ.copy()
+                env.pop("NO_COLOR", None)
+                env["FORCE_COLOR"] = "1"
+                with mock.patch.dict(os.environ, env, clear=True):
+                    assert _supports_color() is True
+
+    def test_supports_color_tty(self):
+        from horavox.update import _supports_color
+
+        mock_stderr = mock.MagicMock()
+        mock_stderr.isatty.return_value = True
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        env.pop("FORCE_COLOR", None)
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch("horavox.update.sys.stderr", mock_stderr):
+                assert _supports_color() is True
+
+    def test_color_output_when_tty(self, capsys):
+        from horavox.update import check_for_update
+
+        mock_stderr = mock.MagicMock()
+        mock_stderr.isatty.return_value = True
+        mock_stderr.write = sys.stderr.write
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        env.pop("FORCE_COLOR", None)
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch("horavox.update.sys.stderr", mock_stderr):
+                with self._mock_pypi("9.9.9"):
+                    check_for_update()
+        err = capsys.readouterr().err
+        assert "\033[33m" in err or "\033[1m" in err
+
+    def test_no_color_output(self, capsys):
+        from horavox.update import check_for_update
+
+        with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
+            with self._mock_pypi("9.9.9"):
+                check_for_update()
+        err = capsys.readouterr().err
+        assert "\033[" not in err
+        assert "Update available" in err
+
+    def test_read_cache_os_error(self):
+        from horavox.update import _read_cache
+
+        with mock.patch("builtins.open", side_effect=OSError("broken")):
+            with mock.patch("os.path.exists", return_value=True):
+                with mock.patch("os.path.getmtime", return_value=0):
+                    with mock.patch("time.time", return_value=100):
+                        assert _read_cache() is None
+
+    def test_write_cache_os_error(self):
+        from horavox.update import _write_cache
+
+        with mock.patch("builtins.open", side_effect=OSError("no space")):
+            _write_cache("1.0.0")
+
+    def test_check_for_update_outer_exception(self, capsys):
+        from horavox.update import check_for_update
+
+        with mock.patch("horavox.update._get_latest_version", side_effect=RuntimeError("boom")):
+            check_for_update()
+        err = capsys.readouterr().err
+        assert err == ""
+
+
+# ==================== list.py error handling ====================
+
+
+class TestListErrorHandling:
+    def test_keyboard_interrupt(self):
+        from horavox import list as list_cmd
+
+        with mock.patch.object(sys, "argv", ["vox list"]):
+            with mock.patch.object(list_cmd, "get_running_sessions", side_effect=KeyboardInterrupt):
+                list_cmd.main()
+
+    def test_exception_logs_and_raises(self):
+        from horavox import list as list_cmd
+
+        with mock.patch.object(sys, "argv", ["vox list"]):
+            with mock.patch.object(
+                list_cmd, "get_running_sessions", side_effect=RuntimeError("boom")
+            ):
+                with mock.patch.object(list_cmd, "log_error"):
+                    with pytest.raises(RuntimeError, match="boom"):
+                        list_cmd.main()
+
+
+# ==================== completion.py error handling ====================
+
+
+class TestCompletionErrorHandling:
+    def test_keyboard_interrupt(self):
+        from horavox import completion
+
+        with mock.patch.object(sys, "argv", ["vox completion", "--bash"]):
+            with mock.patch.dict("sys.modules", {"argcomplete": None}):
+                with mock.patch("horavox.completion._main", side_effect=KeyboardInterrupt):
+                    completion.main()
+
+    def test_argcomplete_missing(self, capsys):
+        from horavox import completion
+
+        real_import = (
+            __builtins__["__import__"]
+            if isinstance(__builtins__, dict)
+            else __builtins__.__import__
+        )
+
+        def fake_import(name, *a, **kw):
+            if name == "argcomplete":
+                raise ImportError("no argcomplete")
+            return real_import(name, *a, **kw)
+
+        with mock.patch.object(sys, "argv", ["vox completion", "--bash"]):
+            with mock.patch("builtins.__import__", side_effect=fake_import):
+                with pytest.raises(SystemExit):
+                    completion._main()
+
+
+# ==================== platforms/linux.py ====================
+
+
+class TestLinuxPlatform:
+    def test_vox_path_found(self):
+        from horavox.platforms.linux import _vox_path
+
+        with mock.patch("shutil.which", return_value="/usr/local/bin/vox"):
+            assert _vox_path() == "/usr/local/bin/vox"
+
+    def test_vox_path_not_found(self):
+        from horavox.platforms.linux import _vox_path
+
+        with mock.patch("shutil.which", return_value=None):
+            assert _vox_path() == "vox"
+
+    def test_unit_content(self):
+        from horavox.platforms.linux import _unit_content
+
+        with mock.patch("horavox.platforms.linux._vox_path", return_value="/usr/bin/vox"):
+            content = _unit_content()
+        assert "ExecStart=/usr/bin/vox service run" in content
+        assert "[Unit]" in content
+        assert "WantedBy=default.target" in content
+
+    def test_register(self, tmp_path):
+        from horavox.platforms import linux
+
+        unit_path = str(tmp_path / "horavox.service")
+        with mock.patch.object(linux, "UNIT_DIR", str(tmp_path)):
+            with mock.patch.object(linux, "UNIT_PATH", unit_path):
+                with mock.patch.object(linux, "_unit_content", return_value="[Unit]\ntest"):
+                    with mock.patch("subprocess.run") as mock_run:
+                        linux.register()
+        assert os.path.exists(unit_path)
+        with open(unit_path) as f:
+            assert f.read() == "[Unit]\ntest"
+        assert mock_run.call_count == 2
+
+    def test_start(self):
+        from horavox.platforms import linux
+
+        with mock.patch("subprocess.run") as mock_run:
+            linux.start()
+        mock_run.assert_called_once()
+        assert "start" in mock_run.call_args[0][0]
+
+    def test_stop(self):
+        from horavox.platforms import linux
+
+        with mock.patch("subprocess.run") as mock_run:
+            linux.stop()
+        mock_run.assert_called_once()
+        assert "stop" in mock_run.call_args[0][0]
+
+    def test_reload(self):
+        from horavox.platforms import linux
+
+        with mock.patch("subprocess.run") as mock_run:
+            linux.reload()
+        mock_run.assert_called_once()
+        assert "SIGHUP" in mock_run.call_args[0][0]
+
+    def test_unregister(self, tmp_path):
+        from horavox.platforms import linux
+
+        unit_path = str(tmp_path / "horavox.service")
+        with open(unit_path, "w") as f:
+            f.write("test")
+        with mock.patch.object(linux, "UNIT_PATH", unit_path):
+            with mock.patch("subprocess.run"):
+                linux.unregister()
+        assert not os.path.exists(unit_path)
+
+    def test_is_running_active(self):
+        from horavox.platforms import linux
+
+        result = mock.MagicMock()
+        result.stdout = "active\n"
+        with mock.patch("subprocess.run", return_value=result):
+            assert linux.is_running() is True
+
+    def test_is_running_inactive(self):
+        from horavox.platforms import linux
+
+        result = mock.MagicMock()
+        result.stdout = "inactive\n"
+        with mock.patch("subprocess.run", return_value=result):
+            assert linux.is_running() is False
+
+
+# ==================== config.py additional coverage ====================
+
+
+class TestConfigAdditionalCoverage:
+    def setup_method(self):
+        import tempfile
+
+        self.tmpdir = tempfile.mkdtemp(prefix="horavox-test-config-")
+        self.config_path = os.path.join(self.tmpdir, "config.json")
+        self._patch = mock.patch("horavox.config.CONFIG_PATH", self.config_path)
+        self._patch_dir = mock.patch("horavox.config.USER_DIR", self.tmpdir)
+        self._patch.start()
+        self._patch_dir.start()
+
+    def teardown_method(self):
+        self._patch.stop()
+        self._patch_dir.stop()
+        import shutil
+
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_del_nested_cleans_empty_parents(self):
+        from horavox.config import _del_nested
+
+        data = {"a": {"b": {"c": "value"}}}
+        assert _del_nested(data, ["a", "b", "c"]) is True
+        assert data == {}
+
+    def test_print_mapping_empty(self, capsys):
+        from horavox.config import _print_mapping
+
+        _print_mapping([])
+        out = capsys.readouterr().out
+        assert "No mapping entries." in out
+
+    def test_parse_mapping_args_empty_date(self):
+        from horavox.config import _parse_mapping_args
+
+        with pytest.raises(SystemExit):
+            _parse_mapping_args(["9:00", "msg", "--date"])
+
+    def test_mapping_unset_non_int_key_found(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {"mapping": {"time": "false"}}, "alias": {}, "mapping": []}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "--unset", "settings.mapping.time"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "Unset" in out
+
+    def test_mapping_unset_non_int_key_not_found(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {}, "alias": {}, "mapping": []}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "--unset", "mapping.foo"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "is not set" in out
+
+    def test_mapping_unset_index_out_of_range(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {}, "alias": {}, "mapping": [{"time": "9:00"}]}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "--unset", "mapping.5"]):
+            with pytest.raises(SystemExit):
+                _main()
+        out = capsys.readouterr().out
+        assert "out of range" in out
+
+    def test_config_get_mapping_list(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {
+            "settings": {},
+            "alias": {},
+            "mapping": [{"time": "9:00", "message": "test"}],
+        }
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "mapping"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "9:00" in out
+
+    def test_get_nested_dict_value(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {
+            "settings": {"mapping": {"time": "false"}},
+            "alias": {},
+            "mapping": [],
+        }
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "settings.mapping"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "settings.mapping.time=false" in out
+
+    def test_get_single_value(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {"lang": "pl"}, "alias": {}, "mapping": []}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "lang"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "lang=pl" in out
+
+    def test_mapping_unset_existing_non_int_key(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {}, "alias": {"clock": "--background"}, "mapping": []}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "--unset", "alias.clock"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "Unset" in out
+
+    def test_show_all_with_mapping(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {
+            "settings": {"lang": "pl"},
+            "alias": {},
+            "mapping": [{"time": "9:00", "message": "hello"}],
+        }
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "settings.lang=pl" in out
+        assert "9:00" in out
+
+    def test_get_empty_dict(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {"mapping": {}}, "alias": {}, "mapping": []}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "settings.mapping"]):
+            _main()
+        out = capsys.readouterr().out
+        assert "empty" in out
+
+
+# ==================== at.py additional coverage ====================
+
+
+class TestAtFormatDays:
+    def test_everyday(self):
+        from horavox.at import _format_days
+
+        assert _format_days(set(range(7))) == "everyday"
+
+    def test_weekdays(self):
+        from horavox.at import _format_days
+
+        assert _format_days({0, 1, 2, 3, 4}) == "weekdays"
+
+    def test_weekends(self):
+        from horavox.at import _format_days
+
+        assert _format_days({5, 6}) == "weekends"
+
+    def test_individual_days(self):
+        from horavox.at import _format_days
+
+        result = _format_days({0, 2})
+        assert "Monday" in result
+        assert "Wednesday" in result
+
+
+class TestAtRunOnce:
+    def test_run_at_once_all_passed(self, capsys):
+        import datetime
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        schedule = [(10, 0)]
+        target_dates = [datetime.date.today() - datetime.timedelta(days=1)]
+
+        at.run_at_once(args, "en", lang_data, datetime.timedelta(0), schedule, target_dates)
+        out = capsys.readouterr().out
+        assert "passed" in out
+        core.configure(verbose=False)
+
+    def test_run_at_once_simulated_time_log(self, capsys):
+        import datetime
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now()
+        future_time = (now + datetime.timedelta(hours=2)).replace(second=0, microsecond=0)
+        args = argparse.Namespace(voice=None, message=None, time="14:00", exit=False)
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        schedule = [(future_time.hour, future_time.minute)]
+        target_dates = [datetime.date.today()]
+        offset = datetime.timedelta(0)
+
+        # Run in a thread and cancel quickly
+        import threading
+
+        def run():
+            try:
+                at.run_at_once(args, "en", lang_data, offset, schedule, target_dates)
+            except Exception:
+                pass
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=0.5)
+        out = capsys.readouterr().out
+        assert "Simulated start time" in out
+        core.configure(verbose=False)
+
+
+class TestAtRunOnceLoop:
+    def test_run_at_once_announces_and_exits(self):
+        import datetime
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now().replace(second=0, microsecond=0)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        schedule = [(now.hour, now.minute)]
+        target_dates = [now.date()]
+
+        with mock.patch.object(at, "prepare_speech"):
+            with mock.patch.object(at, "play_beep"):
+                with mock.patch.object(at, "play_speech"):
+                    with mock.patch("time.sleep"):
+                        at.run_at_once(
+                            args,
+                            "en",
+                            lang_data,
+                            datetime.timedelta(0),
+                            schedule,
+                            target_dates,
+                        )
+        core.configure(verbose=False)
+
+    def test_run_at_once_skips_past_target(self):
+        import datetime
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now()
+        past = now - datetime.timedelta(minutes=10)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        schedule = [(past.hour, past.minute)]
+        target_dates = [now.date()]
+
+        at.run_at_once(
+            args,
+            "en",
+            lang_data,
+            datetime.timedelta(0),
+            schedule,
+            target_dates,
+        )
+        core.configure(verbose=False)
+
+
+class TestAtRepeatExit:
+    def test_run_at_repeat_exit_not_matching(self, capsys):
+        import datetime
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=True)
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        schedule = [(3, 0)]
+        repeat_days = {0, 1, 2, 3, 4, 5, 6}
+
+        at.run_at_repeat(args, "en", lang_data, datetime.timedelta(0), schedule, repeat_days)
+        out = capsys.readouterr().out
+        assert "not at a scheduled time" in out
+        core.configure(verbose=False)
+
+    def test_run_at_repeat_logs_with_simulated_time(self, capsys):
+        import datetime
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        args = argparse.Namespace(voice=None, message=None, time="10:00", exit=False)
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        schedule = [(23, 59)]
+        repeat_days = {0, 1, 2, 3, 4, 5, 6}
+
+        import threading
+
+        def run():
+            try:
+                at.run_at_repeat(
+                    args, "en", lang_data, datetime.timedelta(0), schedule, repeat_days
+                )
+            except Exception:
+                pass
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=0.5)
+        out = capsys.readouterr().out
+        assert "Simulated start time" in out
+        core.configure(verbose=False)
+
+
+# ==================== clock.py additional coverage ====================
+
+
+class TestClockLoopCoverage:
+    def test_clock_exit_outside_range(self, capsys):
+        import datetime
+
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now().replace(second=0, microsecond=0)
+        args = argparse.Namespace(
+            voice=None,
+            freq=60,
+            time=None,
+            exit=True,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+            start="0:00",
+            end="23:59",
+            lang=None,
+            mode="classic",
+        )
+        freq = 60
+        h, m = now.hour, now.minute
+        if m % freq == 0:
+            start_min = (h * 60 + m + 60) % 1440
+            end_min = (h * 60 + m + 120) % 1440
+        else:
+            start_min = ((h * 60 + m) // 60 + 1) * 60 % 1440
+            end_min = start_min + 60
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                clock.run_clock(args, "en", lang_data, datetime.timedelta(0), start_min, end_min)
+        out = capsys.readouterr().out
+        assert "outside range" in out or "not at announcement slot" in out
+        core.configure(verbose=False)
+
+    def test_clock_loop_log_messages(self, capsys):
+        import datetime
+
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        args = argparse.Namespace(
+            voice=None,
+            freq=30,
+            time="10:00",
+            exit=False,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+        )
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+
+        call_count = [0]
+
+        def fake_sleep(secs):
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                raise KeyboardInterrupt
+
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                with mock.patch("time.sleep", side_effect=fake_sleep):
+                    try:
+                        clock.run_clock(
+                            args, "en", lang_data, datetime.timedelta(0), 0, 23 * 60 + 59
+                        )
+                    except KeyboardInterrupt:
+                        pass
+        out = capsys.readouterr().out
+        assert "HoraVox started" in out
+        assert "every 30 min" in out
+        assert "Simulated start time" in out
+        assert "Time range" in out or "every 30 minutes" in out
+        core.configure(verbose=False)
+
+    def test_clock_loop_in_range_announce(self):
+        import datetime
+
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+        offset = now - datetime.datetime.now()
+
+        args = argparse.Namespace(
+            voice=None,
+            freq=60,
+            time=None,
+            exit=False,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+        )
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+
+        call_count = [0]
+
+        def fake_sleep(secs):
+            call_count[0] += 1
+            if call_count[0] >= 3:
+                raise KeyboardInterrupt
+
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                with mock.patch.object(clock, "get_spoken_time", return_value="twelve o'clock"):
+                    with mock.patch.object(clock, "prepare_speech"):
+                        with mock.patch.object(clock, "prepare_combined_speech"):
+                            with mock.patch.object(clock, "play_beep"):
+                                with mock.patch.object(clock, "play_speech"):
+                                    with mock.patch("time.sleep", side_effect=fake_sleep):
+                                        try:
+                                            clock.run_clock(
+                                                args, "en", lang_data, offset, 0, 23 * 60 + 59
+                                            )
+                                        except KeyboardInterrupt:
+                                            pass
+        core.configure(verbose=False)
+
+    def test_clock_loop_outside_range_skips(self, capsys):
+        import datetime
+
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+        offset = now - datetime.datetime.now()
+
+        args = argparse.Namespace(
+            voice=None,
+            freq=60,
+            time=None,
+            exit=False,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+        )
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+
+        start_min = (now.hour * 60 + 120) % 1440
+        end_min = (now.hour * 60 + 180) % 1440
+
+        call_count = [0]
+
+        def fake_sleep(secs):
+            call_count[0] += 1
+            if call_count[0] >= 3:
+                raise KeyboardInterrupt
+
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                with mock.patch("time.sleep", side_effect=fake_sleep):
+                    try:
+                        clock.run_clock(args, "en", lang_data, offset, start_min, end_min)
+                    except KeyboardInterrupt:
+                        pass
+        out = capsys.readouterr().out
+        assert "outside range" in out
+        core.configure(verbose=False)
+
+    def test_clock_next_announcement_frac_gte_5(self):
+        import datetime
+
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        args = argparse.Namespace(
+            voice=None,
+            freq=60,
+            time=None,
+            exit=True,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+        )
+        lang_data = {"hours": {}, "minutes": {}, "connectors": {}}
+        now = datetime.datetime.now().replace(minute=0, second=6, microsecond=0)
+        offset = now - datetime.datetime.now()
+
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                clock.run_clock(args, "en", lang_data, offset, 0, 23 * 60 + 59)
+        core.configure(verbose=False)

@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import unittest.mock
 
 import pytest
 
@@ -751,3 +752,274 @@ class TestScaleWavVolume:
         assert result[0] == 16383
         assert result[1] == -16384
         core.VOLUME = 100
+
+
+# ==================== remove_session ====================
+
+
+class TestRemoveSession:
+    def test_removes_json_and_pid(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        sid = "test-session-id"
+        json_file = tmp_path / f"{sid}.json"
+        pid_file = tmp_path / f"{sid}.pid"
+        json_file.write_text("{}")
+        pid_file.write_text("12345")
+        core.remove_session(sid)
+        assert not json_file.exists()
+        assert not pid_file.exists()
+
+    def test_removes_only_existing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        sid = "test-session-id"
+        json_file = tmp_path / f"{sid}.json"
+        json_file.write_text("{}")
+        core.remove_session(sid)
+        assert not json_file.exists()
+
+
+# ==================== kill_session ====================
+
+
+class TestKillSession:
+    def test_kill_success(self, tmp_path, capsys):
+        path = str(tmp_path / "test.json")
+        pid_path = str(tmp_path / "test.pid")
+        with open(path, "w") as f:
+            f.write("{}")
+        with open(pid_path, "w") as f:
+            f.write("12345")
+        data = {"pid": 99999}
+
+        with unittest.mock.patch("os.kill") as mock_kill:
+            mock_kill.side_effect = [None, OSError("No such process")]
+            core.kill_session(path, data)
+        out = capsys.readouterr().out
+        assert "Stopped" in out
+        assert not os.path.exists(path)
+
+    def test_kill_timeout_sigkill(self, capsys, tmp_path):
+        path = str(tmp_path / "test.json")
+        pid_path = str(tmp_path / "test.pid")
+        with open(path, "w") as f:
+            f.write("{}")
+        with open(pid_path, "w") as f:
+            f.write("12345")
+        data = {"pid": 99999}
+        import signal
+
+        kill_calls = []
+
+        def fake_kill(pid, sig):
+            kill_calls.append(sig)
+            if sig == signal.SIGKILL:
+                return
+            if sig == 0:
+                return  # process still alive
+
+        with unittest.mock.patch("os.kill", side_effect=fake_kill):
+            with unittest.mock.patch("time.sleep"):
+                core.kill_session(path, data)
+        assert signal.SIGKILL in kill_calls
+
+    def test_kill_os_error(self, capsys, tmp_path):
+        path = str(tmp_path / "test.json")
+        with open(path, "w") as f:
+            f.write("{}")
+        data = {"pid": 99999}
+        with unittest.mock.patch("os.kill", side_effect=OSError("Permission denied")):
+            core.kill_session(path, data)
+        out = capsys.readouterr().out
+        assert "Error stopping" in out
+
+
+# ==================== parse_time_arg error ====================
+
+
+class TestParseTimeArgError:
+    def test_invalid_time_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            core.parse_time_arg("25:00")
+
+    def test_invalid_format_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            core.parse_time_arg("abc")
+
+
+# ==================== get_voices_catalog ====================
+
+
+class TestGetVoicesCatalog:
+    def test_catalog_fetch_and_cache(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+
+        catalog_data = {"test_voice": {"language": {"family": "en"}}}
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(catalog_data).encode("utf-8")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with unittest.mock.patch("urllib.request.urlopen", return_value=mock_resp):
+            result = core.get_voices_catalog()
+        assert "test_voice" in result
+
+    def test_catalog_error_with_stale_cache(self, tmp_path, monkeypatch, capsys):
+        import json
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setattr(core, "CACHE_DIR", str(cache_dir))
+        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+
+        cache_file = cache_dir / "voices.json"
+        old_data = {"cached_voice": {"language": {"family": "en"}}}
+        cache_file.write_text(json.dumps(old_data))
+        old_time = os.path.getmtime(str(cache_file)) - 200000
+        os.utime(str(cache_file), (old_time, old_time))
+
+        core.VERBOSE = True
+        with unittest.mock.patch("urllib.request.urlopen", side_effect=OSError("no net")):
+            result = core.get_voices_catalog()
+        assert "cached_voice" in result
+        out = capsys.readouterr().out
+        assert "cached version" in out
+        core.VERBOSE = False
+
+    def test_catalog_error_no_cache_exits(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+
+        with unittest.mock.patch("urllib.request.urlopen", side_effect=OSError("no net")):
+            with pytest.raises(SystemExit):
+                core.get_voices_catalog()
+        out = capsys.readouterr().out
+        assert "could not fetch" in out
+
+
+# ==================== download_voice ====================
+
+
+class TestDownloadVoice:
+    def test_download_unknown_voice(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+
+        with unittest.mock.patch.object(core, "get_voices_catalog", return_value={}):
+            with pytest.raises(SystemExit):
+                core.download_voice("nonexistent_voice")
+        out = capsys.readouterr().out
+        assert "not found" in out
+
+    def test_download_with_progress_cb(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
+
+        catalog = {
+            "test_voice": {
+                "files": {
+                    "test_voice.onnx": {"size_bytes": 1024},
+                }
+            }
+        }
+        calls = []
+
+        def fake_retrieve(url, dest, reporthook=None):
+            with open(dest, "w") as f:
+                f.write("fake")
+            if reporthook:
+                reporthook(1, 512, 1024)
+
+        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
+            with unittest.mock.patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
+                core.download_voice("test_voice", progress_cb=lambda *a: calls.append(a))
+        assert len(calls) == 1
+
+    def test_download_without_progress_cb(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
+
+        catalog = {
+            "test_voice": {
+                "files": {
+                    "test_voice.onnx": {"size_bytes": 1024000},
+                }
+            }
+        }
+
+        def fake_retrieve(url, dest, reporthook=None):
+            with open(dest, "w") as f:
+                f.write("fake")
+
+        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
+            with unittest.mock.patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
+                core.download_voice("test_voice")
+        out = capsys.readouterr().out
+        assert "Downloading" in out
+        assert "installed" in out
+
+    def test_download_skips_existing(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        monkeypatch.setattr(core, "VOICES_DIR", str(voices_dir))
+
+        (voices_dir / "test_voice.onnx").write_text("already here")
+
+        catalog = {
+            "test_voice": {
+                "files": {
+                    "test_voice.onnx": {"size_bytes": 1024},
+                }
+            }
+        }
+        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
+            with unittest.mock.patch("urllib.request.urlretrieve") as mock_ret:
+                core.download_voice("test_voice")
+                mock_ret.assert_not_called()
+
+    def test_download_error_cleans_up(self, tmp_path, monkeypatch, capsys):
+        voices_dir = tmp_path / "voices"
+        monkeypatch.setattr(core, "VOICES_DIR", str(voices_dir))
+
+        catalog = {
+            "test_voice": {
+                "files": {
+                    "test_voice.onnx": {"size_bytes": 1024},
+                }
+            }
+        }
+
+        def fake_retrieve(url, dest, reporthook=None):
+            with open(dest, "w") as f:
+                f.write("partial")
+            raise OSError("download failed")
+
+        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
+            with unittest.mock.patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
+                with pytest.raises(SystemExit):
+                    core.download_voice("test_voice")
+        assert not (voices_dir / "test_voice.onnx").exists()
+
+
+# ==================== resolve_voice download path ====================
+
+
+class TestResolveVoiceDownload:
+    def test_resolve_named_voice_downloads(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        monkeypatch.setattr(core, "VOICES_DIR", str(voices_dir))
+
+        def fake_download(key, progress_cb=None):
+            (voices_dir / f"{key}.onnx").write_text("fake")
+
+        core.VERBOSE = True
+        with unittest.mock.patch.object(core, "download_voice", side_effect=fake_download):
+            result = core.resolve_voice("en_US-test-medium", "en")
+        assert result.endswith("en_US-test-medium.onnx")
+        core.VERBOSE = False
