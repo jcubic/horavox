@@ -666,6 +666,22 @@ class TestServiceManager:
                     _check_children("/usr/bin/vox", children)
         assert children["aaa"] is new_proc
 
+    def test_check_children_skips_clean_exit(self):
+        """A child that exits 0 (completed normally) should not be restarted."""
+        from horavox.service import _check_children
+
+        proc = mock.MagicMock()
+        proc.poll.return_value = 0
+        proc.returncode = 0
+        children = {"aaa": proc}
+        instances = [{"id": "aaa", "command": "at 19:20"}]
+        with mock.patch("horavox.service.list_instances", return_value=instances):
+            with mock.patch("horavox.service.subprocess.Popen") as mock_popen:
+                with mock.patch("horavox.service.log_to_file"):
+                    _check_children("/usr/bin/vox", children)
+        mock_popen.assert_not_called()
+        assert "aaa" not in children
+
     def test_check_children_removes_orphan(self):
         from horavox.service import _check_children
 

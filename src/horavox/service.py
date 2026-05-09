@@ -361,11 +361,14 @@ def _check_children(vox, children):
     for iid in list(children.keys()):
         proc = children[iid]
         if proc.poll() is not None:
-            if iid in command_map:
-                log_to_file(f"service: instance {iid} exited, restarting")
+            if iid not in command_map:
+                del children[iid]
+            elif proc.returncode != 0:
+                log_to_file(f"service: instance {iid} crashed (exit {proc.returncode}), restarting")
                 del children[iid]
                 _start_child(vox, children, iid, command_map[iid])
             else:
+                log_to_file(f"service: instance {iid} completed (exit 0)")
                 del children[iid]
 
 
