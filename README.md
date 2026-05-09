@@ -25,6 +25,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Volume control** -- set volume 0--100% with `--volume`
 - **Scheduled announcements** -- speak the time (or a custom message) at specific times with `vox at`
 - **Background mode** -- run as a daemon with `--background`, stop with `--stop`
+- **Time-based messages** -- attach custom messages to specific times with recurring schedules via `vox config mapping.add`
 - **Autostart service** -- add as a system service with `vox service add`, runs on login
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
 - **Simulated time** -- debug with `--time HH:MM` to set a fake starting time
@@ -133,7 +134,7 @@ vox voice --list               # non-interactive list (for scripting)
 vox voice --list --lang pl     # non-interactive for a specific language
 ```
 
-Installed voices are marked with `[*]`. Downloads show a progress bar below the list.
+Installed voices are marked with `[*]`. The default voice (the one that would be used by `vox clock` or `vox now`) is marked with `[D]`. Press `Enter` to test a voice -- it speaks the current time. If the voice isn't installed, it downloads it first. Downloads show a progress bar below the list.
 
 ### Volume and sound
 
@@ -215,6 +216,27 @@ Manage aliases the same way as settings:
 ```bash
 vox config alias.clock                 # show an alias
 vox config --unset alias.clock         # remove an alias
+```
+
+#### Time-based messages (mapping)
+
+Attach custom messages to specific clock times. When `vox clock` fires at a mapped time, it speaks the time followed by a short pause and the message:
+
+```bash
+vox config mapping.add 17:00 'feed the cat'                           # every day at 17:00
+vox config mapping.add 9:00 'stand-up meeting' --date weekdays        # weekdays only
+vox config mapping.add 8:00 'weekend run' --date saturday,sunday      # specific days
+vox config mapping.add 12:00 'lunch time' --date monday,wednesday,friday
+vox config mapping                                                     # list all entries
+vox config --unset mapping.0                                           # remove by index
+```
+
+The `--date` flag accepts the same values as `vox at --repeat`: day names (`monday`--`sunday`), `everyday`, `weekdays`, `weekends`, comma-separated. Without `--date`, the message plays every day. Entries without a message text still match (useful for future extensions) but produce no extra speech.
+
+To speak only the message without the time, set:
+
+```bash
+vox config settings.mapping.time=false
 ```
 
 ### vox service
@@ -386,7 +408,7 @@ pyproject.toml        Package configuration
 ~/.horavox/           Runtime data (created automatically)
   voices/             Downloaded Piper voice models (.onnx)
   cache/              Voice catalog cache + PID file
-  config.json         Default settings and aliases
+  config.json         Default settings, aliases, and time-based message mappings
   data.json           Installed service instances registry
   horavox.log         Spoken words + error log
 ```
