@@ -166,6 +166,40 @@ class TestNowCommand:
                 now.main()
                 mock_speak.assert_called_once()
 
+    def test_message_speaks_custom_text(self):
+        from horavox import now
+
+        with mock.patch.object(sys, "argv", ["vox now", "--debug", "-m", "Hello world"]):
+            with mock.patch.object(now, "speak") as mock_speak:
+                now.main()
+                mock_speak.assert_called_once()
+                text = mock_speak.call_args[0][1]
+                assert text == "Hello world"
+
+    def test_message_long_flag(self):
+        from horavox import now
+
+        with mock.patch.object(
+            sys, "argv", ["vox now", "--debug", "--message", "Testing one two three"]
+        ):
+            with mock.patch.object(now, "speak") as mock_speak:
+                now.main()
+                text = mock_speak.call_args[0][1]
+                assert text == "Testing one two three"
+
+    def test_message_ignores_time_flag(self):
+        from horavox import now
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox now", "--debug", "--time", "12:00", "-m", "Custom", "--lang", "en"],
+        ):
+            with mock.patch.object(now, "speak") as mock_speak:
+                now.main()
+                text = mock_speak.call_args[0][1]
+                assert text == "Custom"
+
     def test_keyboard_interrupt(self):
         from horavox import now
 

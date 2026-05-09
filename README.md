@@ -73,7 +73,7 @@ vox <command> [options]
 | `vox voice` | Manage Piper voice models |
 | `vox at` | Speak the time or a custom message at specified times |
 | `vox config` | Get or set default configuration |
-| `vox service` | Manage autostart service (add/delete/list/start/status) |
+| `vox service` | Manage autostart service (add/delete/list/start/restart/status) |
 | `vox completion` | Generate shell completion scripts |
 
 Run `vox <command> --help` for command-specific options.
@@ -228,6 +228,7 @@ vox service delete <id>                # delete a specific instance
 vox service delete --all               # delete all instances
 vox service delete                     # interactive selection if multiple
 vox service start                      # start the service manually
+vox service restart                    # restart the service (e.g. after editing instances)
 vox service status                     # show service and instance status
 ```
 

@@ -59,6 +59,14 @@ def setup_parser(parser):
         help="Volume level 0-100 percent (default: 100, 0 = no sound)",
     )
     parser.add_argument(
+        "--message",
+        "-m",
+        type=str,
+        default=None,
+        metavar="TEXT",
+        help="Speak custom text instead of the current time",
+    )
+    parser.add_argument(
         "--nosound",
         action="store_true",
         help="Same as --volume 0 — skip voice loading and audio playback",
@@ -119,7 +127,10 @@ def _main():
         now = datetime.datetime.now()
         h, m = now.hour, now.minute
 
-    text = get_spoken_time(lang_data, h, m)
+    if args.message:
+        text = args.message
+    else:
+        text = get_spoken_time(lang_data, h, m)
     speak(voice, text, beep_count=beep_count_for_minute(m))
 
 

@@ -422,6 +422,70 @@ class TestServiceStart:
         platform.start.assert_called_once()
 
 
+# ==================== service restart ====================
+
+
+class TestServiceRestart:
+    def test_restart_running(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = True
+        platform.is_running.return_value = True
+        with mock.patch.object(service, "list_instances", return_value=[{"id": "aaa"}]):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_restart()
+        platform.stop.assert_called_once()
+        platform.start.assert_called_once()
+        out = capsys.readouterr().out
+        assert "Service restarted." in out
+
+    def test_restart_stopped(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = True
+        platform.is_running.return_value = False
+        with mock.patch.object(service, "list_instances", return_value=[{"id": "aaa"}]):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_restart()
+        platform.stop.assert_not_called()
+        platform.start.assert_called_once()
+        out = capsys.readouterr().out
+        assert "Service started." in out
+
+    def test_restart_no_instances(self, capsys):
+        from horavox import service
+
+        with mock.patch.object(service, "list_instances", return_value=[]):
+            with pytest.raises(SystemExit) as exc:
+                service._cmd_restart()
+            assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "No installed instances" in out
+
+    def test_restart_not_registered(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = False
+        with mock.patch.object(service, "list_instances", return_value=[{"id": "aaa"}]):
+            with mock.patch.object(service, "get_platform", return_value=platform):
+                service._cmd_restart()
+        platform.register.assert_called_once()
+        platform.start.assert_called_once()
+        out = capsys.readouterr().out
+        assert "Service started." in out
+
+    def test_restart_dispatches(self):
+        from horavox import service
+
+        with mock.patch.object(sys, "argv", ["vox service", "restart"]):
+            with mock.patch.object(service, "_cmd_restart") as m:
+                service._main()
+                m.assert_called_once()
+
+
 # ==================== service status ====================
 
 
@@ -522,6 +586,7 @@ class TestServiceDispatch:
         assert "delete" in out
         assert "list" in out
         assert "start" in out
+        assert "restart" in out
         assert "status" in out
 
     def test_help_flag(self, capsys):

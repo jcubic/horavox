@@ -21,6 +21,7 @@ SUBCOMMANDS = {
     "delete": "Delete installed service instances",
     "list": "List installed service instances",
     "start": "Start the service (register and run)",
+    "restart": "Restart the service",
     "status": "Show service and instance status",
     "run": "Run the service manager (internal)",
 }
@@ -37,6 +38,7 @@ def setup_parser(parser):
     )
     subs.add_parser("list", help=SUBCOMMANDS["list"])
     subs.add_parser("start", help=SUBCOMMANDS["start"])
+    subs.add_parser("restart", help=SUBCOMMANDS["restart"])
     subs.add_parser("status", help=SUBCOMMANDS["status"])
     subs.add_parser("run", help=argparse.SUPPRESS)
 
@@ -78,6 +80,8 @@ def _main():
         _cmd_list()
     elif subcmd == "start":
         _cmd_start()
+    elif subcmd == "restart":
+        _cmd_restart()
     elif subcmd == "status":
         _cmd_status()
     elif subcmd == "run":
@@ -241,6 +245,28 @@ def _cmd_start():
         return
     platform.start()
     print("Service started.")
+
+
+# ==================== restart ====================
+
+
+def _cmd_restart():
+    if not list_instances():
+        print("No installed instances. Use 'vox service add' first.")
+        sys.exit(1)
+    platform = get_platform()
+    if not platform.is_registered():
+        platform.register()
+        platform.start()
+        print("Service started.")
+        return
+    if platform.is_running():
+        platform.stop()
+        platform.start()
+        print("Service restarted.")
+    else:
+        platform.start()
+        print("Service started.")
 
 
 # ==================== status ====================
