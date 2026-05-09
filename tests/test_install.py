@@ -809,9 +809,11 @@ class TestServiceManager:
         with mock.patch("horavox.service.list_instances", return_value=instances):
             with mock.patch("horavox.service.subprocess.Popen") as mock_popen:
                 with mock.patch("horavox.service.log_to_file"):
-                    _check_children("/usr/bin/vox", children)
+                    with mock.patch("horavox.service.remove_instance") as mock_remove:
+                        _check_children("/usr/bin/vox", children)
         mock_popen.assert_not_called()
         assert "aaa" not in children
+        mock_remove.assert_called_once_with("aaa")
 
     def test_check_children_removes_orphan(self):
         from horavox.service import _check_children

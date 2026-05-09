@@ -414,6 +414,8 @@ def _check_children(vox, children, crash_failures=None):
                 log_to_file(f"service: instance {iid} completed (exit 0)")
                 del children[iid]
                 crash_failures.pop(iid, None)
+                remove_instance(iid)
+                log_to_file(f"service: removed completed instance {iid} from registry")
 
 
 if __name__ == "__main__":
