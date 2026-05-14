@@ -3486,7 +3486,13 @@ class TestAtRunOnce:
 
         core.configure(nosound=True, verbose=True)
         args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         schedule = [(10, 0)]
         target_dates = [datetime.date.today() - datetime.timedelta(days=1)]
 
@@ -3504,7 +3510,13 @@ class TestAtRunOnce:
         now = datetime.datetime.now()
         future_time = (now + datetime.timedelta(hours=2)).replace(second=0, microsecond=0)
         args = argparse.Namespace(voice=None, message=None, time="14:00", exit=False)
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         schedule = [(future_time.hour, future_time.minute)]
         target_dates = [datetime.date.today()]
         offset = datetime.timedelta(0)
@@ -3535,7 +3547,13 @@ class TestAtRunOnceLoop:
         core.configure(nosound=True, verbose=True)
         now = datetime.datetime.now().replace(second=0, microsecond=0)
         args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         schedule = [(now.hour, now.minute)]
         target_dates = [now.date()]
 
@@ -3562,7 +3580,13 @@ class TestAtRunOnceLoop:
         now = datetime.datetime.now()
         past = now - datetime.timedelta(minutes=10)
         args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         schedule = [(past.hour, past.minute)]
         target_dates = [now.date()]
 
@@ -3585,7 +3609,13 @@ class TestAtRepeatExit:
 
         core.configure(nosound=True, verbose=True)
         args = argparse.Namespace(voice=None, message=None, time=None, exit=True)
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         schedule = [(3, 0)]
         repeat_days = {0, 1, 2, 3, 4, 5, 6}
 
@@ -3601,7 +3631,13 @@ class TestAtRepeatExit:
 
         core.configure(nosound=True, verbose=True)
         args = argparse.Namespace(voice=None, message=None, time="10:00", exit=False)
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         schedule = [(23, 59)]
         repeat_days = {0, 1, 2, 3, 4, 5, 6}
 
@@ -3657,7 +3693,13 @@ class TestClockLoopCoverage:
         else:
             start_min = ((h * 60 + m) // 60 + 1) * 60 % 1440
             end_min = start_min + 60
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         with mock.patch("horavox.config.get_mapping", return_value=[]):
             with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
                 clock.run_clock(args, "en", lang_data, datetime.timedelta(0), start_min, end_min)
@@ -3682,7 +3724,13 @@ class TestClockLoopCoverage:
             debug=True,
             background=False,
         )
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
 
         call_count = [0]
 
@@ -3727,7 +3775,13 @@ class TestClockLoopCoverage:
             debug=True,
             background=False,
         )
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
 
         call_count = [0]
 
@@ -3772,7 +3826,13 @@ class TestClockLoopCoverage:
             debug=True,
             background=False,
         )
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
 
         start_min = (now.hour * 60 + 120) % 1440
         end_min = (now.hour * 60 + 180) % 1440
@@ -3812,7 +3872,13 @@ class TestClockLoopCoverage:
             debug=True,
             background=False,
         )
-        lang_data = {"hours": {}, "hours_alt": {}, "minutes": {}, "connectors": {}, "patterns": {"time": "{hour} {minutes}"}}
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
         now = datetime.datetime.now().replace(minute=0, second=6, microsecond=0)
         offset = now - datetime.datetime.now()
 
