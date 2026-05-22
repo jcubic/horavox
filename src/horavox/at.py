@@ -35,6 +35,7 @@ from horavox.core import (
     detect_language,
     ensure_user_dirs,
     get_spoken_time,
+    is_sleep_active,
     load_language_data,
     log,
     log_error,
@@ -291,6 +292,10 @@ def run_at_once(args, lang, lang_data, time_offset, schedule, target_dates):
 
         if in_window and target != last_announced:
             last_announced = target
+            if is_sleep_active():
+                log(f"  {target.hour}:{target.minute:02d} sleeping, skipping.")
+                announced_count += 1
+                continue
             text = _get_text(args, lang_data, target.hour, target.minute)
             prepare_speech(voice, text)
             remaining = (target - get_now()).total_seconds()
@@ -354,6 +359,9 @@ def run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days):
 
         if in_window and target != last_announced:
             last_announced = target
+            if is_sleep_active():
+                log(f"  {target.hour}:{target.minute:02d} sleeping, skipping.")
+                continue
             text = _get_text(args, lang_data, target.hour, target.minute)
             prepare_speech(voice, text)
             remaining = (target - get_now()).total_seconds()
@@ -451,7 +459,7 @@ def _main():
             pid_file = os.path.join(SESSIONS_DIR, f"{session_id}.pid")
 
             def daemon_action_repeat():
-                create_session(os.getpid(), session_id)
+                create_session(os.getpid(), session_id, session_type="at")
                 try:
                     run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days)
                 except Exception:
@@ -497,7 +505,7 @@ def _main():
             pid_file = os.path.join(SESSIONS_DIR, f"{session_id}.pid")
 
             def daemon_action_once():
-                create_session(os.getpid(), session_id)
+                create_session(os.getpid(), session_id, session_type="at")
                 try:
                     run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
                 except Exception:

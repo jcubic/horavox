@@ -15,6 +15,8 @@ src/horavox/
   now.py          vox now — speak once
   list.py         vox list — list running daemons
   stop.py         vox stop — stop daemons (interactive if multiple)
+  sleep.py        vox sleep — mute running daemons (auto-wake on range restart)
+  wakeup.py       vox wakeup — resume sleeping daemons
   voice.py        vox voice — interactive voice browser (i/u keys, arrow nav)
   service.py      vox service — install/remove/list/start/run autostart instances
   registry.py     CRUD for ~/.horavox/data.json instance registry
@@ -37,10 +39,11 @@ tests/
 
 ## Runtime data (`~/.horavox/`)
 
-- `voices/` — downloaded `.onnx` Piper models
+- `models/` — downloaded `.onnx` Piper models (managed by voxkit)
 - `cache/voices.json` — Hugging Face catalog cache (24h TTL)
-- `sessions/<uuid>.json` — running daemon metadata `{pid, command}`
+- `sessions/<uuid>.json` — running daemon metadata `{pid, command, type, start, end}`
 - `sessions/<uuid>.pid` — daemon PID file (from daemonize lib)
+- `sleep.json` — sleep state file (created by `vox sleep`, deleted by `vox wakeup`)
 - `horavox.log` — spoken words + error tracebacks
 
 ## Commands
@@ -51,6 +54,8 @@ tests/
 | `vox now` | Speak current time once (`--time HH:MM` to override) |
 | `vox list` | List running daemon PIDs (`--verbose` shows command line) |
 | `vox stop` | Stop daemon(s) — direct if one, interactive (inquirer) if multiple, `--pid N` for specific |
+| `vox sleep` | Mute all daemons — auto-wakes on range restart, or use `--until`/`--for` |
+| `vox wakeup` | Resume all sleeping daemons immediately |
 | `vox at` | Speak time at specified times, one-shot or recurring (`--repeat`) |
 | `vox voice` | Interactive voice browser (arrow keys, `i`=install, `u`=uninstall, `q`=quit) |
 | `vox service add` | Add a command as an autostart service instance |

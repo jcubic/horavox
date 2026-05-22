@@ -29,7 +29,7 @@ import traceback
 from voxkit import VoiceManager
 from voxkit.tts import play_mp3, play_wav, scale_volume, synthesize, synthesize_multi
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 # ================== PATHS ==================
 # Package data (ships with the package, read-only)
@@ -43,6 +43,7 @@ BEEP_MP3 = os.path.join(DATA_DIR, "beep.mp3")
 USER_DIR = os.path.expanduser("~/.horavox")
 CACHE_DIR = os.path.join(USER_DIR, "cache")
 SESSIONS_DIR = os.path.join(USER_DIR, "sessions")
+SLEEP_FILE = os.path.join(USER_DIR, "sleep.json")
 LEGACY_VOICES_DIR = os.path.join(USER_DIR, "voices")
 
 TEMP_WAV = f"/tmp/horavox-{os.getpid()}.wav"
@@ -366,13 +367,19 @@ def get_running_sessions():
     return sessions
 
 
-def create_session(pid, session_id):
+def create_session(pid, session_id, session_type=None, start=None, end=None):
     """Create a session file for a new daemon instance."""
     session_file = os.path.join(SESSIONS_DIR, f"{session_id}.json")
     data = {
         "pid": pid,
         "command": " ".join(sys.argv),
     }
+    if session_type:
+        data["type"] = session_type
+    if start is not None:
+        data["start"] = start
+    if end is not None:
+        data["end"] = end
     with open(session_file, "w", encoding="utf-8") as f:
         json.dump(data, f)
     return session_file
@@ -407,6 +414,76 @@ def kill_session(path, data):
     pid_path = path.replace(".json", ".pid")
     if os.path.exists(pid_path):
         os.remove(pid_path)
+
+
+# ==================== SLEEP ====================
+
+
+def read_sleep():
+    """Read sleep file. Returns dict or None."""
+    if not os.path.exists(SLEEP_FILE):
+        return None
+    try:
+        with open(SLEEP_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if "timestamp" not in data:
+            return None
+        return data
+    except (json.JSONDecodeError, OSError):
+        log("Warning: corrupt sleep file, ignoring.")
+        return None
+
+
+def write_sleep(until=None):
+    """Write sleep file atomically."""
+    data = {"timestamp": time.time()}
+    if until is not None:
+        data["until"] = until
+    tmp = SLEEP_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.rename(tmp, SLEEP_FILE)
+
+
+def clear_sleep():
+    """Remove sleep file."""
+    try:
+        os.remove(SLEEP_FILE)
+    except OSError:
+        pass
+
+
+def _next_range_start_after(sleep_timestamp, start_minutes):
+    """Find the first range start datetime after the sleep timestamp."""
+    sleep_dt = datetime.datetime.fromtimestamp(sleep_timestamp)
+    start_h = start_minutes // 60
+    start_m = start_minutes % 60
+    candidate = sleep_dt.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    if candidate <= sleep_dt:
+        candidate += datetime.timedelta(days=1)
+    return candidate
+
+
+def is_sleep_active(start_minutes=None, end_minutes=None):
+    """Check if sleep is active for a daemon with the given range.
+
+    Pass start_minutes/end_minutes for daemons with a time range (auto-wake).
+    Pass None for daemons without a range (no auto-wake).
+    Full-day range (0:00-23:59) is treated as no range.
+    """
+    sleep_data = read_sleep()
+    if sleep_data is None:
+        return False
+    if sleep_data.get("until") is not None and time.time() >= sleep_data["until"]:
+        clear_sleep()
+        return False
+    if start_minutes is not None and end_minutes is not None:
+        full_day = start_minutes == 0 and end_minutes == time_to_minutes(23, 59)
+        if not full_day:
+            next_start = _next_range_start_after(sleep_data["timestamp"], start_minutes)
+            if datetime.datetime.now() >= next_start:
+                return False
+    return True
 
 
 # ==================== TIME UTILITIES ====================

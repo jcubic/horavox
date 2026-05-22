@@ -1,11 +1,13 @@
-"""Unit tests for command modules — main, clock, now, stop, voice.
+"""Unit tests for command modules — main, clock, now, stop, voice, sleep, wakeup.
 
 Tests the option parsing and dispatch logic by mocking core functions.
 """
 
 import argparse
+import json
 import os
 import sys
+import time
 from unittest import mock
 
 import pytest
@@ -3660,3 +3662,283 @@ class TestClockLoopCoverage:
             with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
                 clock.run_clock(args, "en", lang_data, offset, 0, 23 * 60 + 59)
         core.configure(verbose=False)
+
+
+# ==================== sleep.py ====================
+
+
+class TestSleepCommand:
+    def test_noop_when_no_sessions(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+        monkeypatch.setattr(sys, "argv", ["vox sleep"])
+        _main()
+        assert not (tmp_path / "sleep.json").exists()
+        assert capsys.readouterr().out == ""
+
+    def test_sleep_creates_file(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "command": "vox clock --start 8 --end 22",
+                    "type": "clock",
+                    "start": "8:00",
+                    "end": "22:00",
+                }
+            )
+        )
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep"])
+        _main()
+        assert (tmp_path / "sleep.json").exists()
+        assert "Sleep activated" in capsys.readouterr().out
+
+    def test_sleep_error_no_range(self, tmp_path, monkeypatch):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(
+            json.dumps({"pid": os.getpid(), "command": "vox clock", "type": "clock"})
+        )
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep"])
+        with pytest.raises(SystemExit):
+            _main()
+        assert not (tmp_path / "sleep.json").exists()
+
+    def test_sleep_no_range_allowed_with_until(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(
+            json.dumps({"pid": os.getpid(), "command": "vox clock", "type": "clock"})
+        )
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "--until", "08:00"])
+        _main()
+        assert (tmp_path / "sleep.json").exists()
+
+    def test_sleep_with_for_duration(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "command": "vox clock --start 8 --end 22",
+                    "type": "clock",
+                    "start": "8:00",
+                    "end": "22:00",
+                }
+            )
+        )
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "--for", "2h"])
+        _main()
+        data = json.loads((tmp_path / "sleep.json").read_text())
+        assert data["until"] > time.time()
+        assert "Sleep activated until" in capsys.readouterr().out
+
+    def test_sleep_warns_about_at(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "clock.json"
+        session_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "command": "vox clock --start 8 --end 22",
+                    "type": "clock",
+                    "start": "8:00",
+                    "end": "22:00",
+                }
+            )
+        )
+        at_file = sessions_dir / "at.json"
+        at_file.write_text(
+            json.dumps({"pid": os.getpid(), "command": "vox at 12:00", "type": "at"})
+        )
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep"])
+        _main()
+        out = capsys.readouterr().out
+        assert "Warning" in out
+        assert "vox at" in out
+
+    def test_until_and_for_conflict(self, tmp_path, monkeypatch):
+        from horavox.sleep import _main
+
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "--until", "08:00", "--for", "2h"])
+        with pytest.raises(SystemExit):
+            _main()
+
+    def test_fallback_type_detection_from_command(self, tmp_path, monkeypatch):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(json.dumps({"pid": os.getpid(), "command": "vox clock"}))
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep"])
+        with pytest.raises(SystemExit):
+            _main()
+
+    def test_fallback_type_detection_at(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        clock_file = sessions_dir / "clock.json"
+        clock_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "command": "vox clock --start 8 --end 22",
+                    "type": "clock",
+                    "start": "8:00",
+                    "end": "22:00",
+                }
+            )
+        )
+        at_file = sessions_dir / "at.json"
+        at_file.write_text(json.dumps({"pid": os.getpid(), "command": "vox at 12:00"}))
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(sys, "argv", ["vox sleep"])
+        _main()
+        out = capsys.readouterr().out
+        assert "Warning" in out
+
+
+class TestSessionTypeDetection:
+    def test_session_type_from_field(self):
+        from horavox.sleep import _session_type
+
+        assert _session_type({"type": "clock"}) == "clock"
+
+    def test_session_type_from_command_clock(self):
+        from horavox.sleep import _session_type
+
+        assert _session_type({"command": "vox clock --start 8"}) == "clock"
+
+    def test_session_type_from_command_at(self):
+        from horavox.sleep import _session_type
+
+        assert _session_type({"command": "vox at 12:00"}) == "at"
+
+    def test_session_type_unknown(self):
+        from horavox.sleep import _session_type
+
+        assert _session_type({"command": "something else"}) is None
+
+
+class TestParseDuration:
+    def test_hours(self):
+        from horavox.sleep import parse_duration
+
+        assert parse_duration("2h") == 7200
+
+    def test_minutes(self):
+        from horavox.sleep import parse_duration
+
+        assert parse_duration("30m") == 1800
+
+    def test_hours_and_minutes(self):
+        from horavox.sleep import parse_duration
+
+        assert parse_duration("1h30m") == 5400
+
+    def test_invalid(self):
+        from horavox.sleep import parse_duration
+
+        with pytest.raises(SystemExit):
+            parse_duration("abc")
+
+    def test_zero(self):
+        from horavox.sleep import parse_duration
+
+        with pytest.raises(SystemExit):
+            parse_duration("0h0m")
+
+
+# ==================== wakeup.py ====================
+
+
+class TestWakeupCommand:
+    def test_wakeup_removes_sleep(self, tmp_path, monkeypatch, capsys):
+        from horavox.wakeup import _main
+
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text('{"timestamp": 1}')
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        monkeypatch.setattr(sys, "argv", ["vox wakeup"])
+        _main()
+        assert not sleep_file.exists()
+        assert "resumed" in capsys.readouterr().out
+
+    def test_wakeup_no_sleep(self, tmp_path, monkeypatch, capsys):
+        from horavox.wakeup import _main
+
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(sys, "argv", ["vox wakeup"])
+        _main()
+        assert "No active sleep" in capsys.readouterr().out
+
+
+# ==================== list.py sleep marker ====================
+
+
+class TestListSleepMarker:
+    def test_list_shows_sleeping(self, tmp_path, monkeypatch, capsys):
+        from horavox.list import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(json.dumps({"pid": os.getpid(), "command": "vox clock"}))
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text('{"timestamp": 1}')
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        monkeypatch.setattr(sys, "argv", ["vox list"])
+        _main()
+        out = capsys.readouterr().out
+        assert "[sleeping]" in out
+
+    def test_list_no_sleeping(self, tmp_path, monkeypatch, capsys):
+        from horavox.list import _main
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(json.dumps({"pid": os.getpid(), "command": "vox clock"}))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(sys, "argv", ["vox list"])
+        _main()
+        out = capsys.readouterr().out
+        assert "[sleeping]" not in out

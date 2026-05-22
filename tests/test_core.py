@@ -1,9 +1,11 @@
 """Unit tests for horavox.core — language, time, voice, session utilities."""
 
+import datetime
 import json
 import os
 import sys
 import tempfile
+import time
 import unittest.mock
 
 import pytest
@@ -763,3 +765,168 @@ class TestParseTimeArgError:
     def test_invalid_format_exits(self, capsys):
         with pytest.raises(SystemExit):
             core.parse_time_arg("abc")
+
+
+# ==================== Sleep ====================
+
+
+class TestReadWriteSleep:
+    def test_read_sleep_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        assert core.read_sleep() is None
+
+    def test_write_and_read_sleep(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        data = core.read_sleep()
+        assert data is not None
+        assert "timestamp" in data
+
+    def test_write_sleep_with_until(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        until = time.time() + 3600
+        core.write_sleep(until=until)
+        data = core.read_sleep()
+        assert data["until"] == until
+
+    def test_clear_sleep(self, tmp_path, monkeypatch):
+        sleep_file = tmp_path / "sleep.json"
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        core.write_sleep()
+        assert sleep_file.exists()
+        core.clear_sleep()
+        assert not sleep_file.exists()
+
+    def test_clear_sleep_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.clear_sleep()
+
+    def test_read_sleep_corrupt_json(self, tmp_path, monkeypatch):
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text("{invalid json")
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        core.VERBOSE = True
+        assert core.read_sleep() is None
+        core.VERBOSE = False
+
+    def test_read_sleep_missing_timestamp(self, tmp_path, monkeypatch):
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text('{"other": "data"}')
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        assert core.read_sleep() is None
+
+    def test_write_sleep_atomic(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert not (tmp_path / "sleep.json.tmp").exists()
+        assert (tmp_path / "sleep.json").exists()
+
+
+class TestIsSleepActive:
+    def test_no_sleep_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        assert core.is_sleep_active() is False
+
+    def test_sleep_active_no_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active() is True
+
+    def test_sleep_active_full_day_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=0, end_minutes=1439) is True
+
+    def test_sleep_expired_until(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep(until=time.time() - 10)
+        assert core.is_sleep_active() is False
+        assert not (tmp_path / "sleep.json").exists()
+
+    def test_sleep_not_expired_until(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep(until=time.time() + 3600)
+        assert core.is_sleep_active() is True
+
+    def test_auto_wake_range_restarted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        yesterday_3pm = datetime.datetime.now().replace(
+            hour=15, minute=0, second=0, microsecond=0
+        ) - datetime.timedelta(days=1)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": yesterday_3pm.timestamp()}))
+        assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is False
+
+    def test_auto_wake_range_not_restarted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is True
+
+    def test_auto_wake_cross_midnight(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        two_days_ago_11pm = datetime.datetime.now().replace(
+            hour=23, minute=0, second=0, microsecond=0
+        ) - datetime.timedelta(days=2)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": two_days_ago_11pm.timestamp()}))
+        assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is False
+
+    def test_cross_midnight_still_sleeping(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is True
+
+
+class TestNextRangeStartAfter:
+    def test_sleep_before_range_start(self):
+        now = datetime.datetime(2026, 5, 22, 7, 0, 0)
+        ts = now.timestamp()
+        result = core._next_range_start_after(ts, 480)
+        assert result == datetime.datetime(2026, 5, 22, 8, 0, 0)
+
+    def test_sleep_after_range_start(self):
+        now = datetime.datetime(2026, 5, 22, 15, 0, 0)
+        ts = now.timestamp()
+        result = core._next_range_start_after(ts, 480)
+        assert result == datetime.datetime(2026, 5, 23, 8, 0, 0)
+
+    def test_sleep_at_range_start(self):
+        now = datetime.datetime(2026, 5, 22, 8, 0, 0)
+        ts = now.timestamp()
+        result = core._next_range_start_after(ts, 480)
+        assert result == datetime.datetime(2026, 5, 23, 8, 0, 0)
+
+
+class TestCreateSessionExtended:
+    def test_session_with_type(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id", session_type="clock")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert data["type"] == "clock"
+        assert data["pid"] == 123
+
+    def test_session_with_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id", session_type="clock", start="8:00", end="22:00")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert data["start"] == "8:00"
+        assert data["end"] == "22:00"
+
+    def test_session_without_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id", session_type="at")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert "start" not in data
+        assert "end" not in data
+        assert data["type"] == "at"
+
+    def test_session_backward_compatible(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert "type" not in data
+        assert "start" not in data
