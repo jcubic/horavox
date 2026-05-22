@@ -59,9 +59,15 @@ def _migrate_legacy_voices(models_dir):
         src = os.path.join(LEGACY_VOICES_DIR, name)
         dst = os.path.join(models_dir, name)
         if os.path.isfile(src) and not os.path.exists(dst):
-            shutil.move(src, dst)
-    if not os.listdir(LEGACY_VOICES_DIR):
-        os.rmdir(LEGACY_VOICES_DIR)
+            try:
+                shutil.move(src, dst)
+            except OSError:
+                log_to_file(f"Failed to migrate voice file: {name}")
+    try:
+        if not os.listdir(LEGACY_VOICES_DIR):
+            os.rmdir(LEGACY_VOICES_DIR)
+    except OSError:
+        pass
 
 
 def get_voice_manager():
