@@ -3,7 +3,7 @@
        alt="HoraVox logotype: a simplistic analog clock and text HORAVOX" />
 </h1>
 
-[![pip](https://img.shields.io/badge/pip-0.2.0-blue.svg)](https://pypi.org/project/horavox/)
+[![pip](https://img.shields.io/badge/pip-0.3.0-blue.svg)](https://pypi.org/project/horavox/)
 [![CI](https://github.com/jcubic/horavox/actions/workflows/ci.yml/badge.svg)](https://github.com/jcubic/horavox/actions/workflows/ci.yml)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/horavox?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/horavox)
 [![horavox GitHub repo](https://img.shields.io/badge/github-horavox-orange?logo=github)](https://github.com/jcubic/horavox)
@@ -26,6 +26,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Scheduled announcements** -- speak the time (or a custom message) at specific times with `vox at`
 - **Background mode** -- run as a daemon with `--background`, stop with `--stop`
 - **Time-based messages** -- attach custom messages to specific times with recurring schedules via `vox config mapping.add`
+- **Sleep / wake** -- temporarily mute all running daemons with `vox sleep`, auto-wakes when the time range restarts
 - **Autostart service** -- add as a system service with `vox service add`, runs on login
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
 - **Simulated time** -- debug with `--time HH:MM` to set a fake starting time
@@ -71,6 +72,8 @@ vox <command> [options]
 | `vox now` | Speak the current time once |
 | `vox list` | List running background instances |
 | `vox stop` | Stop running background instances |
+| `vox sleep` | Mute all running daemons |
+| `vox wakeup` | Resume all sleeping daemons |
 | `vox voice` | Manage Piper voice models |
 | `vox at` | Speak the time or a custom message at specified times |
 | `vox config` | Get or set default configuration |
@@ -122,6 +125,26 @@ vox stop --pid 12345           # stop a specific instance
 ```
 
 When multiple instances are running, `vox stop` shows an interactive menu with arrow-key selection.
+
+### vox sleep / vox wakeup
+
+Temporarily mute all running daemons without stopping them:
+
+```bash
+vox sleep                      # mute everything until range restarts
+vox sleep --until 08:00        # mute until 8:00 AM
+vox sleep --for 2h             # mute for 2 hours
+vox sleep --for 1h30m          # mute for 1 hour 30 minutes
+vox wakeup                     # resume all daemons immediately
+```
+
+When used with `vox clock` that has a `--start`/`--end` range, sleep auto-wakes when the range restarts. For example, if the clock runs 8:00--22:00 and you sleep at 15:00, it stays muted until 8:00 the next day. Cross-midnight ranges work too -- a clock running 22:00--2:00 that sleeps at 23:00 auto-wakes at 22:00 the next evening.
+
+A clock without an explicit range (`--start`/`--end`) requires `--until` or `--for` since there is no range boundary to auto-wake on.
+
+`vox at` instances respect sleep but have no range concept, so they only resume on `vox wakeup` or when `--until`/`--for` expires.
+
+`vox list` shows a `[sleeping]` marker next to muted instances.
 
 ### vox voice
 
@@ -388,6 +411,8 @@ src/horavox/
   at.py               vox at — scheduled announcements (one-shot / recurring)
   stop.py             vox stop — stop daemons
   list.py             vox list — list running daemons
+  sleep.py            vox sleep — mute running daemons
+  wakeup.py           vox wakeup — resume sleeping daemons
   voice.py            vox voice — interactive voice browser
   config.py           vox config — get/set defaults and aliases
   service.py          vox service — autostart service management
@@ -406,10 +431,12 @@ src/horavox/
 pyproject.toml        Package configuration
 
 ~/.horavox/           Runtime data (created automatically)
-  voices/             Downloaded Piper voice models (.onnx)
+  models/             Downloaded Piper voice models (.onnx)
   cache/              Voice catalog cache + PID file
+  sessions/           Running daemon metadata (.json)
   config.json         Default settings, aliases, and time-based message mappings
   data.json           Installed service instances registry
+  sleep.json          Sleep state file (created by vox sleep)
   horavox.log         Spoken words + error log
 ```
 

@@ -35,6 +35,7 @@ from horavox.core import (
     ensure_user_dirs,
     get_spoken_time,
     is_in_range,
+    is_sleep_active,
     load_language_data,
     log,
     log_error,
@@ -249,6 +250,9 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         if in_window and target != last_announced:
             last_announced = target
             if is_in_range(target_hour, target_minute, start_minutes, end_minutes):
+                if is_sleep_active(start_minutes, end_minutes):
+                    log(f"  {target_hour}:{target_minute:02d} sleeping, skipping.")
+                    continue
                 speak_with_mapping(voice, lang_data, target_hour, target_minute, target.weekday())
                 remaining = (target - get_now()).total_seconds()
                 if remaining > 0:
@@ -321,8 +325,16 @@ def _main():
         session_id = str(uuid.uuid4())
         pid_file = os.path.join(SESSIONS_DIR, f"{session_id}.pid")
 
+        has_range = not (start_minutes == 0 and end_minutes == 23 * 60 + 59)
+
         def daemon_action():
-            create_session(os.getpid(), session_id)
+            create_session(
+                os.getpid(),
+                session_id,
+                session_type="clock",
+                start=f"{start_h}:{start_m:02d}" if has_range else None,
+                end=f"{end_h}:{end_m:02d}" if has_range else None,
+            )
             try:
                 run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes)
             except Exception:

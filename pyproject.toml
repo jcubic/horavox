@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "horavox"
-version = "0.2.0"
+version = "0.3.0"
 description = "HoraVox - a multi-language speaking clock using local AI voice models"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -41,6 +41,8 @@ vox-now = "horavox.now:main"
 vox-stop = "horavox.stop:main"
 vox-list = "horavox.list:main"
 vox-voice = "horavox.voice:main"
+vox-sleep = "horavox.sleep:main"
+vox-wakeup = "horavox.wakeup:main"
 
 [tool.ruff]
 line-length = 100
