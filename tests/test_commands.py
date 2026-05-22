@@ -4,6 +4,7 @@ Tests the option parsing and dispatch logic by mocking core functions.
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -530,7 +531,6 @@ class TestClockCommand:
 
     def test_run_clock_exit_mode_directly(self):
         """Test run_clock --exit path with a mock args object."""
-        import datetime
 
         from horavox import clock as clock_mod
         from horavox.clock import run_clock
@@ -599,7 +599,6 @@ class TestClockCommand:
 
     def test_run_clock_loop_one_tick(self):
         """Test the main loop fires once then breaks via side effect."""
-        import datetime
 
         from horavox import clock as clock_mod
         from horavox.clock import run_clock
@@ -1793,7 +1792,6 @@ class TestAtCommand:
 
     def test_message_repeat_loop(self):
         """--message in the repeat main loop (not --exit) speaks custom text."""
-        import datetime
 
         from horavox import at as at_mod
         from horavox.at import run_at_repeat
@@ -1987,7 +1985,6 @@ class TestAtCommand:
 
     def test_run_at_repeat_loop_fires(self):
         """Test the repeat loop fires at a scheduled time then breaks."""
-        import datetime
 
         from horavox import at as at_mod
         from horavox.at import run_at_repeat
@@ -2060,7 +2057,6 @@ class TestAtCommand:
             parse_repeat("")
 
     def test_parse_date_valid(self):
-        import datetime
 
         from horavox.at import parse_date
 
@@ -2073,7 +2069,6 @@ class TestAtCommand:
             parse_date("not-a-date")
 
     def test_parse_date_values_exact_date(self):
-        import datetime
 
         from horavox.at import parse_date_values
 
@@ -2081,7 +2076,6 @@ class TestAtCommand:
         assert result == [datetime.date(2026, 5, 10)]
 
     def test_parse_date_values_multiple_dates(self):
-        import datetime
 
         from horavox.at import parse_date_values
 
@@ -2089,7 +2083,6 @@ class TestAtCommand:
         assert result == [datetime.date(2026, 5, 10), datetime.date(2026, 5, 12)]
 
     def test_parse_date_values_day_name(self):
-        import datetime
 
         from horavox.at import parse_date_values
 
@@ -2099,7 +2092,6 @@ class TestAtCommand:
         assert result[0] > datetime.date.today()
 
     def test_parse_date_values_mixed(self):
-        import datetime
 
         from horavox.at import parse_date_values
 
@@ -2116,7 +2108,6 @@ class TestAtCommand:
             parse_date_values("")
 
     def test_parse_date_values_deduplicates(self):
-        import datetime
 
         from horavox.at import parse_date_values
 
@@ -2130,7 +2121,6 @@ class TestAtCommand:
             parse_date_values("not-a-date")
 
     def test_parse_date_values_sorted(self):
-        import datetime
 
         from horavox.at import parse_date_values
 
@@ -2138,7 +2128,6 @@ class TestAtCommand:
         assert result == [datetime.date(2026, 5, 10), datetime.date(2026, 12, 25)]
 
     def test_date_with_exit_at_scheduled_time(self):
-        import datetime
 
         from horavox import at
 
@@ -2203,7 +2192,6 @@ class TestAtCommand:
                 mock_instance.start.assert_called_once()
 
     def test_run_at_once_multiple_dates(self, capsys):
-        import datetime
 
         from horavox import at as at_mod
         from horavox.at import run_at_once
@@ -2237,7 +2225,6 @@ class TestAtCommand:
         assert mock_prep.call_count >= 1
 
     def test_message_with_date_exit(self):
-        import datetime
 
         from horavox import at
 
@@ -2266,7 +2253,6 @@ class TestAtCommand:
                 assert text == "Meeting time"
 
     def test_next_weekday_never_today(self):
-        import datetime
 
         from horavox.at import _next_weekday
 
@@ -2276,7 +2262,6 @@ class TestAtCommand:
         assert result == today + datetime.timedelta(days=7)
 
     def test_next_weekday_tomorrow(self):
-        import datetime
 
         from horavox.at import _next_weekday
 
@@ -2308,7 +2293,6 @@ class TestAtCommand:
         assert "passed" in out
 
     def test_next_repeat_target(self):
-        import datetime
 
         from horavox.at import _next_repeat_target
 
@@ -2319,7 +2303,6 @@ class TestAtCommand:
         assert target == datetime.datetime(2026, 5, 4, 14, 0)
 
     def test_next_repeat_target_skips_day(self):
-        import datetime
 
         from horavox.at import _next_repeat_target
 
@@ -2332,7 +2315,6 @@ class TestAtCommand:
 
     def test_repeat_wrong_day_no_speak(self, capsys):
         """--exit on a day not in repeat_days should not speak."""
-        import datetime
 
         from horavox import at
 
@@ -3256,12 +3238,11 @@ class TestAtFormatDays:
 
 class TestAtRunOnce:
     def test_run_at_once_all_passed(self, capsys):
-        import datetime
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
-        args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False, exec_cmd=None)
         lang_data = {
             "hours": {},
             "hours_alt": {},
@@ -3278,14 +3259,13 @@ class TestAtRunOnce:
         core.configure(verbose=False)
 
     def test_run_at_once_simulated_time_log(self, capsys):
-        import datetime
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
         now = datetime.datetime.now()
         future_time = (now + datetime.timedelta(hours=2)).replace(second=0, microsecond=0)
-        args = argparse.Namespace(voice=None, message=None, time="14:00", exit=False)
+        args = argparse.Namespace(voice=None, message=None, time="14:00", exit=False, exec_cmd=None)
         lang_data = {
             "hours": {},
             "hours_alt": {},
@@ -3316,13 +3296,12 @@ class TestAtRunOnce:
 
 class TestAtRunOnceLoop:
     def test_run_at_once_announces_and_exits(self):
-        import datetime
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
         now = datetime.datetime.now().replace(second=0, microsecond=0)
-        args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False, exec_cmd=None)
         lang_data = {
             "hours": {},
             "hours_alt": {},
@@ -3348,14 +3327,13 @@ class TestAtRunOnceLoop:
         core.configure(verbose=False)
 
     def test_run_at_once_skips_past_target(self):
-        import datetime
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
         now = datetime.datetime.now()
         past = now - datetime.timedelta(minutes=10)
-        args = argparse.Namespace(voice=None, message=None, time=None, exit=False)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False, exec_cmd=None)
         lang_data = {
             "hours": {},
             "hours_alt": {},
@@ -3379,12 +3357,11 @@ class TestAtRunOnceLoop:
 
 class TestAtRepeatExit:
     def test_run_at_repeat_exit_not_matching(self, capsys):
-        import datetime
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
-        args = argparse.Namespace(voice=None, message=None, time=None, exit=True)
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=True, exec_cmd=None)
         lang_data = {
             "hours": {},
             "hours_alt": {},
@@ -3401,12 +3378,11 @@ class TestAtRepeatExit:
         core.configure(verbose=False)
 
     def test_run_at_repeat_logs_with_simulated_time(self, capsys):
-        import datetime
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
-        args = argparse.Namespace(voice=None, message=None, time="10:00", exit=False)
+        args = argparse.Namespace(voice=None, message=None, time="10:00", exit=False, exec_cmd=None)
         lang_data = {
             "hours": {},
             "hours_alt": {},
@@ -3440,7 +3416,6 @@ class TestAtRepeatExit:
 
 class TestClockLoopCoverage:
     def test_clock_exit_outside_range(self, capsys):
-        import datetime
 
         from horavox import clock, core
 
@@ -3460,6 +3435,7 @@ class TestClockLoopCoverage:
             end="23:59",
             lang=None,
             mode="classic",
+            exec_cmd=None,
         )
         freq = 60
         h, m = now.hour, now.minute
@@ -3484,7 +3460,6 @@ class TestClockLoopCoverage:
         core.configure(verbose=False)
 
     def test_clock_loop_log_messages(self, capsys):
-        import datetime
 
         from horavox import clock, core
 
@@ -3499,6 +3474,7 @@ class TestClockLoopCoverage:
             volume=0,
             debug=True,
             background=False,
+            exec_cmd=None,
         )
         lang_data = {
             "hours": {},
@@ -3532,7 +3508,6 @@ class TestClockLoopCoverage:
         core.configure(verbose=False)
 
     def test_clock_loop_in_range_announce(self):
-        import datetime
 
         from horavox import clock, core
 
@@ -3550,6 +3525,7 @@ class TestClockLoopCoverage:
             volume=0,
             debug=True,
             background=False,
+            exec_cmd=None,
         )
         lang_data = {
             "hours": {},
@@ -3583,7 +3559,6 @@ class TestClockLoopCoverage:
         core.configure(verbose=False)
 
     def test_clock_loop_outside_range_skips(self, capsys):
-        import datetime
 
         from horavox import clock, core
 
@@ -3601,6 +3576,7 @@ class TestClockLoopCoverage:
             volume=0,
             debug=True,
             background=False,
+            exec_cmd=None,
         )
         lang_data = {
             "hours": {},
@@ -3632,7 +3608,6 @@ class TestClockLoopCoverage:
         core.configure(verbose=False)
 
     def test_clock_next_announcement_frac_gte_5(self):
-        import datetime
 
         from horavox import clock, core
 
@@ -3647,6 +3622,7 @@ class TestClockLoopCoverage:
             volume=0,
             debug=True,
             background=False,
+            exec_cmd=None,
         )
         lang_data = {
             "hours": {},
@@ -3942,3 +3918,75 @@ class TestListSleepMarker:
         _main()
         out = capsys.readouterr().out
         assert "[sleeping]" not in out
+
+
+# ==================== --exec flag ====================
+
+
+class TestExecFlag:
+    def test_clock_parser_accepts_exec(self):
+        from horavox.clock import parse_args
+
+        with mock.patch.object(
+            sys, "argv", ["vox clock", "--exec", "notify-send '$TEXT'", "--exit"]
+        ):
+            args = parse_args()
+        assert args.exec_cmd == "notify-send '$TEXT'"
+
+    def test_at_parser_accepts_exec(self):
+        from horavox.at import parse_args
+
+        with mock.patch.object(sys, "argv", ["vox at", "12:00", "--exec", "notify-send '$TEXT'"]):
+            args = parse_args()
+        assert args.exec_cmd == "notify-send '$TEXT'"
+
+    def test_exec_called_in_at_exit_mode(self, tmp_path, monkeypatch):
+        from horavox.at import _main
+
+        monkeypatch.setattr(core, "NOSOUND", True)
+        monkeypatch.setattr(core, "VERBOSE", False)
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["vox at", "12:00", "--exit", "--debug", "--exec", "echo $TEXT", "--time", "12:00"],
+        )
+        with mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            _main()
+        mock_popen.assert_called_once()
+        env = mock_popen.call_args.kwargs["env"]
+        assert "TEXT" in env
+        assert env["TEXT"] != ""
+        assert env["TIME"] == "12:00"
+        assert "DATE" in env
+        assert env["MESSAGE"] == ""
+
+    def test_exec_receives_message(self, tmp_path, monkeypatch):
+        from horavox.at import _main
+
+        monkeypatch.setattr(core, "NOSOUND", True)
+        monkeypatch.setattr(core, "VERBOSE", False)
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "vox at",
+                "12:00",
+                "--exit",
+                "--debug",
+                "--exec",
+                "echo $TEXT",
+                "--message",
+                "Time for lunch",
+                "--time",
+                "12:00",
+            ],
+        )
+        with mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            _main()
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["TEXT"] == "Time for lunch"
+        assert env["MESSAGE"] == "Time for lunch"

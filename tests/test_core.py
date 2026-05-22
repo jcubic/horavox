@@ -930,3 +930,40 @@ class TestCreateSessionExtended:
             data = json.load(f)
         assert "type" not in data
         assert "start" not in data
+
+
+# ==================== run_exec ====================
+
+
+class TestRunExec:
+    def test_sets_env_vars(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            target = datetime.datetime(2026, 5, 22, 14, 30)
+            core.run_exec("echo test", "quarter past two", target, "reminder")
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["TEXT"] == "quarter past two"
+        assert env["MESSAGE"] == "reminder"
+        assert env["TIME"] == "14:30"
+        assert env["DATE"] == "2026-05-22"
+
+    def test_none_command_noop(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            core.run_exec(None, "text", datetime.datetime.now())
+        mock_popen.assert_not_called()
+
+    def test_empty_message_defaults_to_empty_string(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            core.run_exec("echo test", "text", datetime.datetime.now())
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["MESSAGE"] == ""
+
+    def test_oserror_logged(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen", side_effect=OSError("fail")):
+            core.VERBOSE = True
+            core.run_exec("bad_cmd", "text", datetime.datetime.now())
+            core.VERBOSE = False
+
+    def test_shell_true(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            core.run_exec("notify-send test", "text", datetime.datetime.now())
+        assert mock_popen.call_args.kwargs["shell"] is True
