@@ -28,6 +28,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Time-based messages** -- attach custom messages to specific times with recurring schedules via `vox config mapping.add`
 - **Sleep / wake** -- temporarily mute all running daemons with `vox sleep`, auto-wakes when the time range restarts
 - **Autostart service** -- add as a system service with `vox service add`, runs on login
+- **Command hooks** -- run a shell command after each announcement with `--exec` (e.g., desktop notifications)
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
 - **Simulated time** -- debug with `--time HH:MM` to set a fake starting time
 - **Silent by default** -- no terminal output unless `--verbose` is passed
@@ -94,6 +95,7 @@ vox clock --mode modern                            # digital style ("siedemnasta
 vox clock --background                             # run as a daemon
 vox clock --lang pl --voice pl_PL-darkman-medium   # specific language and voice
 vox clock --volume 50                              # 50% volume
+vox clock --exec 'notify-send "HoraVox" "$TEXT"'   # desktop notification on each announcement
 ```
 
 Time range accepts `H`, `HH`, `H:MM`, or `HH:MM`. Supports midnight wrap (e.g., `--start 22 --end 6`).
@@ -188,6 +190,9 @@ vox at 9:00 --message "Stand-up meeting in 5 minutes"
 # Common flags
 vox at 9:00 --repeat everyday --background    # run as a daemon
 vox at 9:00 --repeat everyday --volume 30     # quiet
+
+# Run a command after each announcement
+vox at 9:00 --repeat weekdays --exec 'notify-send "HoraVox" "$TEXT"'
 ```
 
 Times are comma-separated in `HH:MM` format. The `--date` flag accepts day names (`monday`–`sunday`) or exact dates (`YYYY-MM-DD`), comma-separated; day names always resolve to the next occurrence (never today). The `--repeat` flag accepts day keywords: `monday`–`sunday`, `everyday`, `weekdays`, `weekends`. `--date` and `--repeat` are mutually exclusive. Without either, the process runs for today and exits after the last scheduled time.
@@ -202,6 +207,32 @@ Works with `vox service add` too:
 vox service add "at 12:55 --repeat sunday,wednesday --volume 50"
 vox service add "at 9:00 --repeat weekdays -m 'Stand-up meeting'"
 ```
+
+### --exec (run a command after announcements)
+
+Both `vox clock` and `vox at` support `--exec CMD` to run a shell command after each announcement. The following environment variables are available in the command:
+
+| Variable | Description |
+|----------|-------------|
+| `$TEXT` | The full spoken text |
+| `$TIME` | Announced time in HH:MM format |
+| `$DATE` | Current date in YYYY-MM-DD format |
+| `$MESSAGE` | Custom message (from `--message` or mapping), empty if none |
+
+Desktop notification examples for each platform:
+
+```bash
+# Linux (notify-send)
+vox clock --exec 'notify-send "HoraVox" "$TEXT"'
+
+# macOS (osascript)
+vox clock --exec 'osascript -e "display notification \"$TEXT\" with title \"HoraVox\""'
+
+# Windows (PowerShell + BurntToast)
+vox clock --exec 'powershell -Command "New-BurntToastNotification -Text \"HoraVox\",\"$TEXT\""'
+```
+
+The command runs asynchronously (fire-and-forget) so it won't block the next announcement.
 
 ### vox config
 
@@ -277,7 +308,7 @@ vox service restart                    # restart the service (e.g. after editing
 vox service status                     # show service and instance status
 ```
 
-The quoted argument is any valid `vox` subcommand with its flags. The `--background` flag is stripped automatically since the service manager handles that.
+The quoted argument is any valid `vox` subcommand with its flags. The `--background` flag and `vox` prefix are stripped automatically. Unknown commands are rejected at add time.
 
 On the first install, a platform-specific service is registered and started:
 
