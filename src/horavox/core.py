@@ -22,6 +22,7 @@ import locale
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import time
 import traceback
@@ -338,6 +339,27 @@ def speak(voice, text, beep_count=0):
     for _ in range(beep_count):
         play_beep()
     play_speech()
+
+
+def run_exec(command, text, target, message=None):
+    """Run --exec command with TEXT, TIME, DATE, MESSAGE as env vars."""
+    if not isinstance(command, str) or not command:
+        return
+    env = os.environ.copy()
+    env["TEXT"] = text
+    env["TIME"] = target.strftime("%H:%M")
+    env["DATE"] = target.strftime("%Y-%m-%d")
+    env["MESSAGE"] = message or ""
+    try:
+        subprocess.Popen(
+            command,
+            shell=True,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as e:
+        log(f"  --exec error: {e}")
 
 
 # ==================== SESSION MANAGEMENT ====================

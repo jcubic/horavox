@@ -47,6 +47,7 @@ from horavox.core import (
     prepare_speech,
     remove_session,
     resolve_voice,
+    run_exec,
     time_to_minutes,
 )
 
@@ -129,6 +130,14 @@ def setup_parser(parser):
         action="store_true",
         help="Alias for --nosound --verbose",
     )
+    parser.add_argument(
+        "--exec",
+        type=str,
+        default=None,
+        dest="exec_cmd",
+        metavar="CMD",
+        help="Run CMD after each announcement ($TEXT, $TIME, $DATE, $MESSAGE)",
+    )
 
 
 def parse_args():
@@ -205,10 +214,14 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         text = get_spoken_time(lang_data, hour, minute)
         if message and mapping_time:
             prepare_combined_speech(voice, [text, message])
+            spoken = f"{text} {message}"
         elif message:
             prepare_speech(voice, message)
+            spoken = message
         else:
             prepare_speech(voice, text)
+            spoken = text
+        return spoken, message
 
     # --exit mode
     if args.exit:
@@ -216,10 +229,13 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         frac_sec = now.second + now.microsecond / 1_000_000
         if now.minute % freq == 0 and frac_sec < 5:
             if is_in_range(now.hour, now.minute, start_minutes, end_minutes):
-                speak_with_mapping(voice, lang_data, now.hour, now.minute, now.weekday())
+                spoken, msg = speak_with_mapping(
+                    voice, lang_data, now.hour, now.minute, now.weekday()
+                )
                 for _ in range(beep_count_for_minute(now.minute)):
                     play_beep()
                 play_speech()
+                run_exec(args.exec_cmd, spoken, now, msg)
             else:
                 log(f"  {now.hour}:{now.minute:02d} outside range ({range_str}), skipping.")
         else:
@@ -253,13 +269,16 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
                 if is_sleep_active(start_minutes, end_minutes):
                     log(f"  {target_hour}:{target_minute:02d} sleeping, skipping.")
                     continue
-                speak_with_mapping(voice, lang_data, target_hour, target_minute, target.weekday())
+                spoken, msg = speak_with_mapping(
+                    voice, lang_data, target_hour, target_minute, target.weekday()
+                )
                 remaining = (target - get_now()).total_seconds()
                 if remaining > 0:
                     time.sleep(remaining)
                 for _ in range(beep_count_for_minute(target_minute)):
                     play_beep()
                 play_speech()
+                run_exec(args.exec_cmd, spoken, target, msg)
             else:
                 log(f"  {target_hour}:{target_minute:02d} outside range ({range_str}), skipping.")
             continue

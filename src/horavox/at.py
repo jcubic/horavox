@@ -45,6 +45,7 @@ from horavox.core import (
     prepare_speech,
     remove_session,
     resolve_voice,
+    run_exec,
     speak,
 )
 
@@ -220,6 +221,14 @@ def setup_parser(parser):
         action="store_true",
         help="Alias for --nosound --verbose",
     )
+    parser.add_argument(
+        "--exec",
+        type=str,
+        default=None,
+        dest="exec_cmd",
+        metavar="CMD",
+        help="Run CMD after each announcement ($TEXT, $TIME, $DATE, $MESSAGE)",
+    )
 
 
 def parse_args():
@@ -304,6 +313,7 @@ def run_at_once(args, lang, lang_data, time_offset, schedule, target_dates):
             for _ in range(beep_count_for_minute(target.minute)):
                 play_beep()
             play_speech()
+            run_exec(args.exec_cmd, text, target, args.message)
             announced_count += 1
             continue
 
@@ -329,6 +339,7 @@ def run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days):
         if weekday in repeat_days and (now.hour, now.minute) in schedule and frac_sec < 5:
             text = _get_text(args, lang_data, now.hour, now.minute)
             speak(voice, text, beep_count=beep_count_for_minute(now.minute))
+            run_exec(args.exec_cmd, text, now, args.message)
         else:
             times_str = ", ".join(f"{h}:{m:02d}" for h, m in schedule)
             days_str = _format_days(repeat_days)
@@ -370,6 +381,7 @@ def run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days):
             for _ in range(beep_count_for_minute(target.minute)):
                 play_beep()
             play_speech()
+            run_exec(args.exec_cmd, text, target, args.message)
             continue
 
         time.sleep(TICK)
@@ -489,6 +501,7 @@ def _main():
                 voice = _load_voice(args, lang)
                 text = _get_text(args, lang_data, now.hour, now.minute)
                 speak(voice, text, beep_count=beep_count_for_minute(now.minute))
+                run_exec(args.exec_cmd, text, now, args.message)
             else:
                 times_str = ", ".join(f"{h}:{m:02d}" for h, m in schedule)
                 log(f"  Time: {now.strftime('%H:%M:%S')} - not at a scheduled time ({times_str}).")
