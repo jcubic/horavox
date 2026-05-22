@@ -58,10 +58,9 @@ def _session_type(data):
     """Detect session type from session data."""
     if "type" in data:
         return data["type"]
-    cmd = data.get("command", "")
-    for word in ("clock", "at", "now"):
-        if f" {word} " in f" {cmd} ":
-            return word
+    parts = data.get("command", "").split()
+    if len(parts) >= 2 and parts[1] in ("clock", "at", "now"):
+        return parts[1]
     return None
 
 

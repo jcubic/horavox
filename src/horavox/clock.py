@@ -325,15 +325,15 @@ def _main():
         session_id = str(uuid.uuid4())
         pid_file = os.path.join(SESSIONS_DIR, f"{session_id}.pid")
 
-        has_range = args.start != "0:00" or args.end != "23:59"
+        has_range = not (start_minutes == 0 and end_minutes == 23 * 60 + 59)
 
         def daemon_action():
             create_session(
                 os.getpid(),
                 session_id,
                 session_type="clock",
-                start=args.start if has_range else None,
-                end=args.end if has_range else None,
+                start=f"{start_h}:{start_m:02d}" if has_range else None,
+                end=f"{end_h}:{end_m:02d}" if has_range else None,
             )
             try:
                 run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes)
