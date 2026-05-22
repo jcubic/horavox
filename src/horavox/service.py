@@ -130,6 +130,21 @@ def _cmd_add():
     command = args.command.strip()
     parts = shlex.split(command)
     parts = [p for p in parts if p != "--background"]
+
+    if parts and parts[0] == "vox":
+        parts = parts[1:]
+
+    if not parts:
+        print("Error: empty command.")
+        sys.exit(1)
+
+    from horavox.main import COMMANDS
+
+    if parts[0] not in COMMANDS:
+        print(f"Error: unknown command '{parts[0]}'.")
+        print(f"Valid commands: {', '.join(sorted(COMMANDS))}")
+        sys.exit(1)
+
     command = shlex.join(parts)
 
     entry = add_instance(command)
@@ -413,6 +428,13 @@ def _check_children(vox, children, crash_failures=None):
             if iid not in command_map:
                 del children[iid]
                 crash_failures.pop(iid, None)
+            elif proc.returncode == 1:
+                log_to_file(
+                    f"service: instance {iid} failed (exit 1), removing: {command_map[iid]}"
+                )
+                del children[iid]
+                crash_failures.pop(iid, None)
+                remove_instance(iid)
             elif proc.returncode != 0:
                 count = crash_failures.get(iid, 0) + 1
                 crash_failures[iid] = count

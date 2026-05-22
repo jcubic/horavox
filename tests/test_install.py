@@ -215,6 +215,69 @@ class TestServiceAdd:
         msg_idx = parts.index("--message")
         assert parts[msg_idx + 1] == "coś by warto zjeść"
 
+    def test_add_strips_vox_prefix(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = False
+        captured_command = []
+
+        def fake_add(command):
+            captured_command.append(command)
+            return {"id": "fff666", "command": command}
+
+        with mock.patch.object(sys, "argv", ["vox service add", "vox clock --lang pl"]):
+            with mock.patch.object(service, "add_instance", side_effect=fake_add):
+                with mock.patch.object(service, "get_platform", return_value=platform):
+                    service._cmd_add()
+        assert captured_command[0] == "clock --lang pl"
+        out = capsys.readouterr().out
+        assert "Installed instance fff666" in out
+
+    def test_add_strips_vox_prefix_at(self, capsys):
+        from horavox import service
+
+        platform = mock.MagicMock()
+        platform.is_registered.return_value = False
+        captured_command = []
+
+        def fake_add(command):
+            captured_command.append(command)
+            return {"id": "ggg777", "command": command}
+
+        with mock.patch.object(
+            sys, "argv", ["vox service add", "vox at 21:22 --message 'Już czas'"]
+        ):
+            with mock.patch.object(service, "add_instance", side_effect=fake_add):
+                with mock.patch.object(service, "get_platform", return_value=platform):
+                    service._cmd_add()
+        import shlex
+
+        parts = shlex.split(captured_command[0])
+        assert parts[0] == "at"
+        assert "vox" not in parts
+
+    def test_add_rejects_unknown_command(self, capsys):
+        from horavox import service
+
+        with mock.patch.object(sys, "argv", ["vox service add", "bogus --foo"]):
+            with pytest.raises(SystemExit) as exc:
+                service._cmd_add()
+            assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "unknown command" in out.lower()
+        assert "bogus" in out
+
+    def test_add_rejects_empty_after_vox_strip(self, capsys):
+        from horavox import service
+
+        with mock.patch.object(sys, "argv", ["vox service add", "vox"]):
+            with pytest.raises(SystemExit) as exc:
+                service._cmd_add()
+            assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "empty" in out.lower()
+
 
 # ==================== service delete ====================
 
@@ -742,11 +805,12 @@ class TestServiceManager:
         proc1.terminate.assert_called_once()
         proc2.terminate.assert_called_once()
 
-    def test_check_children_restarts_exited(self):
+    def test_check_children_restarts_on_signal_crash(self):
         from horavox.service import _check_children
 
         proc = mock.MagicMock()
-        proc.poll.return_value = 1
+        proc.poll.return_value = -1
+        proc.returncode = -1
         children = {"aaa": proc}
         instances = [{"id": "aaa", "command": "clock --lang pl"}]
         with mock.patch("horavox.service.list_instances", return_value=instances):
@@ -756,6 +820,24 @@ class TestServiceManager:
                 with mock.patch("horavox.service.log_to_file"):
                     _check_children("/usr/bin/vox", children)
         assert children["aaa"] is new_proc
+
+    def test_check_children_removes_on_exit_1(self):
+        """Exit code 1 means permanent failure — remove from registry, don't retry."""
+        from horavox.service import _check_children
+
+        proc = mock.MagicMock()
+        proc.poll.return_value = 1
+        proc.returncode = 1
+        children = {"aaa": proc}
+        instances = [{"id": "aaa", "command": "bogus --foo"}]
+        with mock.patch("horavox.service.list_instances", return_value=instances):
+            with mock.patch("horavox.service.subprocess.Popen") as mock_popen:
+                with mock.patch("horavox.service.log_to_file"):
+                    with mock.patch("horavox.service.remove_instance") as mock_remove:
+                        _check_children("/usr/bin/vox", children)
+        mock_popen.assert_not_called()
+        assert "aaa" not in children
+        mock_remove.assert_called_once_with("aaa")
 
     def test_check_children_stops_after_rapid_crashes(self):
         """After MAX_CRASH_COUNT rapid crashes, stop restarting the child."""
