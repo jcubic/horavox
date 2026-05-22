@@ -4,12 +4,17 @@
 * add `vox service`
 * add `vox at` command
 * add `vox config` command
+* add `vox sleep` / `vox wakeup` to mute and resume running daemons
+* add time-based messages (mapping) via `vox config mapping.add`
 * add shell completion
 * add update available notification message
-* add `--message` option to `vox now` (an new `vox at`)
+* add `--message` option to `vox now` (and new `vox at`)
+* add command validation in `vox service add` (strips `vox` prefix, rejects unknown commands)
+* add `--exec` flag to `vox clock` and `vox at` for running commands after announcements
 * improve `vox voice` TUI
 ### Bugfix
 * fix cleaning old session files
+* migrate legacy voice directory (`~/.horavox/voices/`) to new location (`~/.horavox/models/`)
 
 ## 0.2.0
 ### Feature
