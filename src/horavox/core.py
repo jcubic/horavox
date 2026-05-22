@@ -16,19 +16,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """HoraVox shared library — paths, logging, language, TTS, voice, session management."""
 
-import array
 import datetime
-import glob
 import json
 import locale
 import os
+import shutil
 import signal
-import subprocess
 import sys
 import time
 import traceback
-import urllib.request
-import wave
+
+from voxkit import VoiceManager
+from voxkit.tts import play_mp3, play_wav, scale_volume, synthesize, synthesize_multi
 
 __version__ = "0.2.0"
 
@@ -42,20 +41,42 @@ BEEP_MP3 = os.path.join(DATA_DIR, "beep.mp3")
 
 # User data (writable, created at runtime)
 USER_DIR = os.path.expanduser("~/.horavox")
-VOICES_DIR = os.path.join(USER_DIR, "voices")
 CACHE_DIR = os.path.join(USER_DIR, "cache")
 SESSIONS_DIR = os.path.join(USER_DIR, "sessions")
+LEGACY_VOICES_DIR = os.path.join(USER_DIR, "voices")
 
-VOICES_JSON_URL = os.environ.get(
-    "HORAVOX_VOICES_JSON_URL",
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json",
-)
-VOICES_BASE_URL = os.environ.get(
-    "HORAVOX_VOICES_BASE_URL",
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main",
-)
 TEMP_WAV = f"/tmp/horavox-{os.getpid()}.wav"
 LOG_FILE = os.path.join(USER_DIR, "horavox.log")
+
+_vm = None
+
+
+def _migrate_legacy_voices(models_dir):
+    """Move voice files from legacy voices/ to models/ directory."""
+    if not os.path.isdir(LEGACY_VOICES_DIR):
+        return
+    for name in os.listdir(LEGACY_VOICES_DIR):
+        src = os.path.join(LEGACY_VOICES_DIR, name)
+        dst = os.path.join(models_dir, name)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            shutil.move(src, dst)
+    if not os.listdir(LEGACY_VOICES_DIR):
+        os.rmdir(LEGACY_VOICES_DIR)
+
+
+def get_voice_manager():
+    """Return the shared VoiceManager instance (lazy init)."""
+    global _vm
+    if _vm is None:
+        _vm = VoiceManager(
+            data_dir=USER_DIR,
+            catalog_url=os.environ.get("HORAVOX_VOICES_JSON_URL"),
+            base_url=os.environ.get("HORAVOX_VOICES_BASE_URL"),
+        )
+        _migrate_legacy_voices(_vm.voices_dir)
+    return _vm
+
+
 # ============================================
 
 VERBOSE = False
@@ -226,163 +247,21 @@ def get_spoken_time(lang_data, hour, minute):
 
 
 def ensure_user_dirs():
-    """Create ~/.horavox/ subdirectories for cache, voices, and sessions."""
+    """Create ~/.horavox/ subdirectories for cache and sessions."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    os.makedirs(VOICES_DIR, exist_ok=True)
     os.makedirs(SESSIONS_DIR, exist_ok=True)
-
-
-def get_voices_catalog():
-    """Fetch and cache the Piper voices catalog from Hugging Face."""
-    ensure_user_dirs()
-    cache_file = os.path.join(CACHE_DIR, "voices.json")
-
-    if os.path.exists(cache_file):
-        age = time.time() - os.path.getmtime(cache_file)
-        if age < 86400:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-
-    log("Fetching voice catalog from Hugging Face...")
-    try:
-        req = urllib.request.Request(VOICES_JSON_URL)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        return data
-    except Exception as e:
-        if os.path.exists(cache_file):
-            log(f"Warning: could not refresh catalog ({e}), using cached version.")
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        print(f"Error: could not fetch voice catalog: {e}")
-        sys.exit(1)
-
-
-def list_voices_for_language(lang):
-    """List available Piper voices for a language family."""
-    catalog = get_voices_catalog()
-    matches = []
-    for key, info in catalog.items():
-        family = info.get("language", {}).get("family", "")
-        if family == lang:
-            size_bytes = sum(
-                f.get("size_bytes", 0)
-                for f in info.get("files", {}).values()
-                if f.get("size_bytes")
-            )
-            size_mb = size_bytes / (1024 * 1024)
-            installed = is_voice_installed(key)
-            matches.append(
-                {
-                    "key": key,
-                    "name": info.get("name", ""),
-                    "quality": info.get("quality", ""),
-                    "region": info.get("language", {}).get("country_english", ""),
-                    "speakers": info.get("num_speakers", 1),
-                    "size_mb": size_mb,
-                    "installed": installed,
-                }
-            )
-
-    matches.sort(key=lambda v: v["key"])
-    return matches
-
-
-def is_voice_installed(voice_key):
-    """Check if a voice's .onnx file exists in the voices directory."""
-    onnx_path = os.path.join(VOICES_DIR, f"{voice_key}.onnx")
-    return os.path.exists(onnx_path)
-
-
-def download_voice(voice_key, progress_cb=None):
-    """Download a voice from Hugging Face to the voices directory.
-
-    progress_cb(filename, block_num, block_size, total_size) is called
-    during download if provided. Pass None for silent/default output.
-    """
-    catalog = get_voices_catalog()
-    if voice_key not in catalog:
-        print(f"Error: voice '{voice_key}' not found in catalog.")
-        print("Use 'vox voice' to see available voices.")
-        sys.exit(1)
-
-    info = catalog[voice_key]
-    os.makedirs(VOICES_DIR, exist_ok=True)
-
-    for file_path, file_info in info.get("files", {}).items():
-        filename = os.path.basename(file_path)
-        dest = os.path.join(VOICES_DIR, filename)
-
-        if os.path.exists(dest):
-            continue
-
-        url = f"{VOICES_BASE_URL}/{file_path}"
-
-        if progress_cb is None:
-            size_mb = file_info.get("size_bytes", 0) / (1024 * 1024)
-            print(f"Downloading {filename} ({size_mb:.1f} MB)...")
-
-        def hook(block_num, block_size, total_size):
-            if progress_cb:
-                progress_cb(filename, block_num, block_size, total_size)
-
-        try:
-            urllib.request.urlretrieve(url, dest, reporthook=hook)
-        except Exception as e:
-            print(f"Error downloading {filename}: {e}")
-            if os.path.exists(dest):
-                os.remove(dest)
-            sys.exit(1)
-
-    if progress_cb is None:
-        print(f"Voice '{voice_key}' installed.")
-
-
-def uninstall_voice(voice_key):
-    """Remove a voice's files from ~/.horavox/voices/."""
-    removed = False
-    for ext in (".onnx", ".onnx.json"):
-        path = os.path.join(VOICES_DIR, f"{voice_key}{ext}")
-        if os.path.exists(path):
-            os.remove(path)
-            removed = True
-    if removed:
-        print(f"Voice '{voice_key}' uninstalled.")
-    else:
-        print(f"Voice '{voice_key}' not found.")
-
-
-def find_voice_for_language(lang):
-    """Find an installed voice matching the language. Returns .onnx path or None."""
-    pattern = os.path.join(VOICES_DIR, f"{lang}_*.onnx")
-    matches = [f for f in glob.glob(pattern) if not f.endswith(".onnx.json")]
-    if matches:
-        for m in matches:
-            if "-medium." in m:
-                return m
-        return matches[0]
-    return None
 
 
 def resolve_voice(voice_name, lang):
     """Resolve which voice to use. Downloads if needed. Returns .onnx path."""
-    if voice_name:
-        onnx_path = os.path.join(VOICES_DIR, f"{voice_name}.onnx")
-        if not os.path.exists(onnx_path):
-            log(f"Voice '{voice_name}' not found locally, downloading...")
-            download_voice(voice_name)
-        return onnx_path
-
-    voice_path = find_voice_for_language(lang)
-    if voice_path:
-        return voice_path
-
-    print(f"No voice installed for language '{lang}'.")
-    print(f"Run: vox voice --lang {lang} (then press 'i' to install)")
-    print(f"Or list available voices: vox voice --list --lang {lang}")
-    sys.exit(1)
+    vm = get_voice_manager()
+    try:
+        return vm.resolve(voice=voice_name, lang=lang)
+    except FileNotFoundError:
+        print(f"No voice installed for language '{lang}'.")
+        print(f"Run: vox voice --lang {lang} (then press 'i' to install)")
+        print(f"Or list available voices: vox voice --list --lang {lang}")
+        sys.exit(1)
 
 
 # ==================== TTS ====================
@@ -393,11 +272,7 @@ def play_blank():
     if NOSOUND:
         return
     if os.path.exists(BLANK_MP3):
-        subprocess.run(
-            ["mpg123", "-q", BLANK_MP3],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        play_mp3(BLANK_MP3)
 
 
 def play_beep():
@@ -405,11 +280,7 @@ def play_beep():
     if NOSOUND:
         return
     if os.path.exists(BEEP_MP3):
-        cmd = ["mpg123", "-q"]
-        if VOLUME < 100:
-            cmd += ["-f", str(int(VOLUME * 32768 / 100))]
-        cmd.append(BEEP_MP3)
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        play_mp3(BEEP_MP3, volume=VOLUME)
 
 
 def beep_count_for_minute(minute):
@@ -421,43 +292,14 @@ def beep_count_for_minute(minute):
     return 0
 
 
-def scale_wav_volume(path):
-    """Scale WAV sample amplitudes to match VOLUME (1-100)."""
-    if VOLUME >= 100:
-        return
-    scale = VOLUME / 100.0
-    with wave.open(path, "rb") as r:
-        params = r.getparams()
-        frames = r.readframes(r.getnframes())
-    samples = array.array("h", frames)
-    for i in range(len(samples)):
-        samples[i] = max(-32768, min(32767, int(samples[i] * scale)))
-    with wave.open(path, "wb") as w:
-        w.setparams(params)
-        w.writeframes(samples.tobytes())
-
-
-def _synthesize_to_file(voice, text, path):
-    """Synthesize text to a WAV file."""
-    with wave.open(path, "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
-
-
-def _append_silence(wav_file, duration_ms, sample_rate, sample_width, channels):
-    """Append silence to an open WAV file."""
-    num_samples = int(sample_rate * duration_ms / 1000)
-    silence = b"\x00" * (num_samples * sample_width * channels)
-    wav_file.writeframes(silence)
-
-
 def prepare_speech(voice, text):
     """Synthesize WAV and play blank MP3 to warm up Bluetooth audio."""
     log(f"Preparing: {text}")
     if NOSOUND:
         return
     log_spoken(text)
-    _synthesize_to_file(voice, text, TEMP_WAV)
-    scale_wav_volume(TEMP_WAV)
+    synthesize(voice, text, TEMP_WAV)
+    scale_volume(TEMP_WAV, VOLUME)
     play_blank()
 
 
@@ -468,27 +310,8 @@ def prepare_combined_speech(voice, texts, pause_ms=700):
         return
     for t in texts:
         log_spoken(t)
-
-    tmp_part = TEMP_WAV + ".part"
-    _synthesize_to_file(voice, texts[0], TEMP_WAV)
-
-    with wave.open(TEMP_WAV, "rb") as r:
-        params = r.getparams()
-
-    with wave.open(TEMP_WAV, "rb") as r:
-        all_frames = r.readframes(r.getnframes())
-
-    with wave.open(TEMP_WAV, "wb") as out:
-        out.setparams(params)
-        out.writeframes(all_frames)
-        for t in texts[1:]:
-            _append_silence(out, pause_ms, params.framerate, params.sampwidth, params.nchannels)
-            _synthesize_to_file(voice, t, tmp_part)
-            with wave.open(tmp_part, "rb") as part:
-                out.writeframes(part.readframes(part.getnframes()))
-            os.remove(tmp_part)
-
-    scale_wav_volume(TEMP_WAV)
+    synthesize_multi(voice, texts, TEMP_WAV, pause_ms)
+    scale_volume(TEMP_WAV, VOLUME)
     play_blank()
 
 
@@ -497,7 +320,7 @@ def play_speech():
     log("Playing speech")
     if NOSOUND:
         return
-    subprocess.run(["aplay", TEMP_WAV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    play_wav(TEMP_WAV)
     if os.path.exists(TEMP_WAV):
         os.remove(TEMP_WAV)
 

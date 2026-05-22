@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
-    "piper-tts",
+    "voxkit",
     "daemonize",
     "inquirer",
     "argcomplete",
