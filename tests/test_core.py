@@ -344,81 +344,69 @@ class TestBeepCount:
 # ==================== voice management ====================
 
 
-class TestVoiceManagement:
-    def test_is_voice_installed_false(self):
-        assert core.is_voice_installed("nonexistent_voice_xyz") is False
-
-    def test_is_voice_installed_true(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "test_voice.onnx").write_text("")
-        assert core.is_voice_installed("test_voice") is True
-
-    def test_list_voices_for_unknown_language(self):
-        voices = core.list_voices_for_language("zz")
-        assert voices == []
-
-    def test_list_voices_returns_list(self):
-        voices = core.list_voices_for_language("en")
-        assert isinstance(voices, list)
-        if voices:
-            v = voices[0]
-            assert "key" in v
-            assert "quality" in v
-            assert "size_mb" in v
-            assert "installed" in v
-
-    def test_find_voice_for_language_none(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        assert core.find_voice_for_language("xx") is None
-
-    def test_find_voice_prefers_medium(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "en_US-low-low.onnx").write_text("")
-        (tmp_path / "en_US-lessac-medium.onnx").write_text("")
-        result = core.find_voice_for_language("en")
-        assert "medium" in result
-
-    def test_find_voice_first_fallback(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "en_US-low-low.onnx").write_text("")
-        result = core.find_voice_for_language("en")
-        assert result is not None
-
+class TestResolveVoice:
     def test_resolve_voice_existing(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "test_voice.onnx").write_text("")
+        monkeypatch.setattr(core, "_vm", None)
+        vm = core.VoiceManager(data_dir=str(tmp_path))
+        monkeypatch.setattr(core, "_vm", vm)
+        models_dir = tmp_path / "models"
+        (models_dir / "test_voice.onnx").write_text("")
         path = core.resolve_voice("test_voice", "en")
-        assert path.endswith("test_voice.onnx")
-
-    def test_resolve_voice_auto_detect(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "en_US-test-medium.onnx").write_text("")
-        path = core.resolve_voice(None, "en")
-        assert "en_US" in path
+        assert "test_voice.onnx" in path
 
     def test_resolve_voice_no_voice(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
+        monkeypatch.setattr(core, "_vm", None)
+        vm = core.VoiceManager(data_dir=str(tmp_path))
+        monkeypatch.setattr(core, "_vm", vm)
         with pytest.raises(SystemExit):
             core.resolve_voice(None, "zz")
 
-    def test_uninstall_voice(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "test_v.onnx").write_text("")
-        (tmp_path / "test_v.onnx.json").write_text("{}")
-        core.uninstall_voice("test_v")
-        assert not (tmp_path / "test_v.onnx").exists()
-        assert not (tmp_path / "test_v.onnx.json").exists()
-        assert "uninstalled" in capsys.readouterr().out
 
-    def test_uninstall_voice_not_found(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        core.uninstall_voice("nonexistent")
-        assert "not found" in capsys.readouterr().out
+# ==================== Legacy voice migration ====================
 
-    def test_download_voice_not_in_catalog(self, monkeypatch):
-        monkeypatch.setattr(core, "get_voices_catalog", lambda: {})
-        with pytest.raises(SystemExit):
-            core.download_voice("nonexistent_voice")
+
+class TestMigrateLegacyVoices:
+    def test_moves_files_from_voices_to_models(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        (voices_dir / "en_US-lessac-medium.onnx").write_text("model")
+        (voices_dir / "en_US-lessac-medium.onnx.json").write_text("{}")
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(voices_dir))
+        core._migrate_legacy_voices(str(models_dir))
+        assert (models_dir / "en_US-lessac-medium.onnx").exists()
+        assert (models_dir / "en_US-lessac-medium.onnx.json").exists()
+        assert not voices_dir.exists()
+
+    def test_skips_existing_files_in_models(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        (voices_dir / "voice.onnx").write_text("old")
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+        (models_dir / "voice.onnx").write_text("new")
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(voices_dir))
+        core._migrate_legacy_voices(str(models_dir))
+        assert (models_dir / "voice.onnx").read_text() == "new"
+        assert (voices_dir / "voice.onnx").exists()
+
+    def test_noop_when_no_legacy_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(tmp_path / "voices"))
+        core._migrate_legacy_voices(str(tmp_path / "models"))
+
+    def test_get_voice_manager_triggers_migration(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        (voices_dir / "pl_PL-test.onnx").write_text("model")
+        (voices_dir / "pl_PL-test.onnx.json").write_text("{}")
+        monkeypatch.setattr(core, "_vm", None)
+        monkeypatch.setattr(core, "USER_DIR", str(tmp_path))
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(voices_dir))
+        core.get_voice_manager()
+        assert (tmp_path / "models" / "pl_PL-test.onnx").exists()
+        assert (tmp_path / "models" / "pl_PL-test.onnx.json").exists()
+        monkeypatch.setattr(core, "_vm", None)
 
 
 # ==================== TTS functions ====================
@@ -432,22 +420,21 @@ class TestTTS:
     def test_play_blank_nosound(self, monkeypatch):
         core.NOSOUND = True
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(1))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append(1))
         core.play_blank()
         assert called == []
 
     def test_play_blank_sound(self, monkeypatch):
         core.NOSOUND = False
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(a))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append(a))
         core.play_blank()
         assert len(called) == 1
-        assert "mpg123" in called[0][0][0]
 
     def test_play_beep_nosound(self, monkeypatch):
         core.NOSOUND = True
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(1))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append(1))
         core.play_beep()
         assert called == []
 
@@ -455,24 +442,24 @@ class TestTTS:
         core.NOSOUND = False
         core.VOLUME = 50
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(a[0]))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append((a, kw)))
         core.play_beep()
         assert len(called) == 1
-        assert "-f" in called[0]
+        assert called[0][1].get("volume") == 50
 
     def test_play_beep_full_volume(self, monkeypatch):
         core.NOSOUND = False
         core.VOLUME = 100
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(a[0]))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append((a, kw)))
         core.play_beep()
         assert len(called) == 1
-        assert "-f" not in called[0]
+        assert called[0][1].get("volume") == 100
 
     def test_play_speech_nosound(self, monkeypatch):
         core.NOSOUND = True
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(1))
+        monkeypatch.setattr("horavox.core.play_wav", lambda *a, **kw: called.append(1))
         core.play_speech()
         assert called == []
 
@@ -481,9 +468,9 @@ class TestTTS:
         wav = tmp_path / "test.wav"
         wav.write_text("")
         monkeypatch.setattr(core, "TEMP_WAV", str(wav))
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: None)
+        monkeypatch.setattr("horavox.core.play_wav", lambda *a, **kw: None)
         core.play_speech()
-        assert not wav.exists()  # removed after play
+        assert not wav.exists()
 
     def test_prepare_speech_nosound(self, monkeypatch):
         core.NOSOUND = True
@@ -505,25 +492,13 @@ class TestTTS:
         assert called == []  # log_spoken not called in nosound
 
     def test_prepare_combined_speech_logs_all_texts(self, monkeypatch):
-        from unittest.mock import MagicMock
-
         core.NOSOUND = False
         logged = []
         monkeypatch.setattr(core, "log_spoken", lambda t: logged.append(t))
         monkeypatch.setattr(core, "play_blank", lambda: None)
-
-        mock_voice = MagicMock()
-
-        def fake_synthesize(text, wav_file):
-            import struct
-
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(22050)
-            wav_file.writeframes(struct.pack("<h", 0) * 100)
-
-        mock_voice.synthesize_wav = fake_synthesize
-        core.prepare_combined_speech(mock_voice, ["hello", "world"], pause_ms=100)
+        monkeypatch.setattr("horavox.core.synthesize_multi", lambda *a, **kw: None)
+        monkeypatch.setattr("horavox.core.scale_volume", lambda *a, **kw: None)
+        core.prepare_combined_speech(None, ["hello", "world"], pause_ms=100)
         assert logged == ["hello", "world"]
 
 
@@ -692,66 +667,10 @@ class TestLogging:
 class TestEnsureUserDirs:
     def test_creates_dirs(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
         monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
         core.ensure_user_dirs()
         assert (tmp_path / "cache").is_dir()
-        assert (tmp_path / "voices").is_dir()
         assert (tmp_path / "sessions").is_dir()
-
-
-# ==================== scale_wav_volume ====================
-
-
-class TestScaleWavVolume:
-    def _make_wav(self, path, samples_list):
-        import array as arr_mod
-        import wave as wav_mod
-
-        samples = arr_mod.array("h", samples_list)
-        with wav_mod.open(path, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(22050)
-            w.writeframes(samples.tobytes())
-
-    def _read_wav(self, path):
-        import array as arr_mod
-        import wave as wav_mod
-
-        with wav_mod.open(path, "rb") as r:
-            frames = r.readframes(r.getnframes())
-        return arr_mod.array("h", frames)
-
-    def test_no_change_at_100(self, tmp_path):
-        core.VOLUME = 100
-        wav = str(tmp_path / "test.wav")
-        self._make_wav(wav, [1000, -1000, 500])
-        core.scale_wav_volume(wav)
-        result = self._read_wav(wav)
-        assert list(result) == [1000, -1000, 500]
-        core.VOLUME = 100
-
-    def test_scale_at_50(self, tmp_path):
-        core.VOLUME = 50
-        wav = str(tmp_path / "test.wav")
-        self._make_wav(wav, [1000, -1000, 500])
-        core.scale_wav_volume(wav)
-        result = self._read_wav(wav)
-        assert result[0] == 500
-        assert result[1] == -500
-        assert result[2] == 250
-        core.VOLUME = 100
-
-    def test_clamp_at_max(self, tmp_path):
-        core.VOLUME = 50
-        wav = str(tmp_path / "test.wav")
-        self._make_wav(wav, [32767, -32768])
-        core.scale_wav_volume(wav)
-        result = self._read_wav(wav)
-        assert result[0] == 16383
-        assert result[1] == -16384
-        core.VOLUME = 100
 
 
 # ==================== remove_session ====================
@@ -844,182 +763,3 @@ class TestParseTimeArgError:
     def test_invalid_format_exits(self, capsys):
         with pytest.raises(SystemExit):
             core.parse_time_arg("abc")
-
-
-# ==================== get_voices_catalog ====================
-
-
-class TestGetVoicesCatalog:
-    def test_catalog_fetch_and_cache(self, tmp_path, monkeypatch):
-        import json
-        from unittest.mock import MagicMock
-
-        monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
-        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
-
-        catalog_data = {"test_voice": {"language": {"family": "en"}}}
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps(catalog_data).encode("utf-8")
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
-
-        with unittest.mock.patch("urllib.request.urlopen", return_value=mock_resp):
-            result = core.get_voices_catalog()
-        assert "test_voice" in result
-
-    def test_catalog_error_with_stale_cache(self, tmp_path, monkeypatch, capsys):
-        import json
-
-        cache_dir = tmp_path / "cache"
-        cache_dir.mkdir()
-        monkeypatch.setattr(core, "CACHE_DIR", str(cache_dir))
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
-        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
-
-        cache_file = cache_dir / "voices.json"
-        old_data = {"cached_voice": {"language": {"family": "en"}}}
-        cache_file.write_text(json.dumps(old_data))
-        old_time = os.path.getmtime(str(cache_file)) - 200000
-        os.utime(str(cache_file), (old_time, old_time))
-
-        core.VERBOSE = True
-        with unittest.mock.patch("urllib.request.urlopen", side_effect=OSError("no net")):
-            result = core.get_voices_catalog()
-        assert "cached_voice" in result
-        out = capsys.readouterr().out
-        assert "cached version" in out
-        core.VERBOSE = False
-
-    def test_catalog_error_no_cache_exits(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
-        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
-
-        with unittest.mock.patch("urllib.request.urlopen", side_effect=OSError("no net")):
-            with pytest.raises(SystemExit):
-                core.get_voices_catalog()
-        out = capsys.readouterr().out
-        assert "could not fetch" in out
-
-
-# ==================== download_voice ====================
-
-
-class TestDownloadVoice:
-    def test_download_unknown_voice(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
-        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
-
-        with unittest.mock.patch.object(core, "get_voices_catalog", return_value={}):
-            with pytest.raises(SystemExit):
-                core.download_voice("nonexistent_voice")
-        out = capsys.readouterr().out
-        assert "not found" in out
-
-    def test_download_with_progress_cb(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
-
-        catalog = {
-            "test_voice": {
-                "files": {
-                    "test_voice.onnx": {"size_bytes": 1024},
-                }
-            }
-        }
-        calls = []
-
-        def fake_retrieve(url, dest, reporthook=None):
-            with open(dest, "w") as f:
-                f.write("fake")
-            if reporthook:
-                reporthook(1, 512, 1024)
-
-        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
-            with unittest.mock.patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
-                core.download_voice("test_voice", progress_cb=lambda *a: calls.append(a))
-        assert len(calls) == 1
-
-    def test_download_without_progress_cb(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
-
-        catalog = {
-            "test_voice": {
-                "files": {
-                    "test_voice.onnx": {"size_bytes": 1024000},
-                }
-            }
-        }
-
-        def fake_retrieve(url, dest, reporthook=None):
-            with open(dest, "w") as f:
-                f.write("fake")
-
-        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
-            with unittest.mock.patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
-                core.download_voice("test_voice")
-        out = capsys.readouterr().out
-        assert "Downloading" in out
-        assert "installed" in out
-
-    def test_download_skips_existing(self, tmp_path, monkeypatch):
-        voices_dir = tmp_path / "voices"
-        voices_dir.mkdir()
-        monkeypatch.setattr(core, "VOICES_DIR", str(voices_dir))
-
-        (voices_dir / "test_voice.onnx").write_text("already here")
-
-        catalog = {
-            "test_voice": {
-                "files": {
-                    "test_voice.onnx": {"size_bytes": 1024},
-                }
-            }
-        }
-        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
-            with unittest.mock.patch("urllib.request.urlretrieve") as mock_ret:
-                core.download_voice("test_voice")
-                mock_ret.assert_not_called()
-
-    def test_download_error_cleans_up(self, tmp_path, monkeypatch, capsys):
-        voices_dir = tmp_path / "voices"
-        monkeypatch.setattr(core, "VOICES_DIR", str(voices_dir))
-
-        catalog = {
-            "test_voice": {
-                "files": {
-                    "test_voice.onnx": {"size_bytes": 1024},
-                }
-            }
-        }
-
-        def fake_retrieve(url, dest, reporthook=None):
-            with open(dest, "w") as f:
-                f.write("partial")
-            raise OSError("download failed")
-
-        with unittest.mock.patch.object(core, "get_voices_catalog", return_value=catalog):
-            with unittest.mock.patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
-                with pytest.raises(SystemExit):
-                    core.download_voice("test_voice")
-        assert not (voices_dir / "test_voice.onnx").exists()
-
-
-# ==================== resolve_voice download path ====================
-
-
-class TestResolveVoiceDownload:
-    def test_resolve_named_voice_downloads(self, tmp_path, monkeypatch):
-        voices_dir = tmp_path / "voices"
-        voices_dir.mkdir()
-        monkeypatch.setattr(core, "VOICES_DIR", str(voices_dir))
-
-        def fake_download(key, progress_cb=None):
-            (voices_dir / f"{key}.onnx").write_text("fake")
-
-        core.VERBOSE = True
-        with unittest.mock.patch.object(core, "download_voice", side_effect=fake_download):
-            result = core.resolve_voice("en_US-test-medium", "en")
-        assert result.endswith("en_US-test-medium.onnx")
-        core.VERBOSE = False

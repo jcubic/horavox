@@ -2391,12 +2391,27 @@ class TestVoiceCommand:
         out = capsys.readouterr().out
         assert "No voices found" in out
 
-    def test_list_has_installed_marker(self, capsys):
+    def test_list_has_installed_marker(self, capsys, monkeypatch):
         from horavox import voice
 
-        with mock.patch.object(core, "is_voice_installed", return_value=True):
-            with mock.patch.object(sys, "argv", ["vox voice", "--list", "--lang", "pl"]):
-                voice.main()
+        fake_voices = [
+            {
+                "key": "pl_PL-darkman-medium",
+                "name": "",
+                "language": "pl_PL",
+                "quality": "medium",
+                "region": "",
+                "speakers": 1,
+                "size_mb": 60,
+                "installed": True,
+            },
+        ]
+        mock_vm = mock.MagicMock()
+        mock_vm.list_voices.return_value = fake_voices
+        mock_vm.get_language_name.return_value = "Polish"
+        monkeypatch.setattr(core, "_vm", mock_vm)
+        with mock.patch.object(sys, "argv", ["vox voice", "--list", "--lang", "pl"]):
+            voice.main()
         out = capsys.readouterr().out
         assert "[*]" in out
 
@@ -2407,19 +2422,6 @@ class TestVoiceCommand:
             voice.main()
         out = capsys.readouterr().out
         assert "No voices found" in out
-
-    def test_get_lang_name(self):
-        from horavox.voice import get_lang_name
-
-        name = get_lang_name("en")
-        assert isinstance(name, str)
-        assert len(name) > 0
-
-    def test_get_lang_name_unknown(self):
-        from horavox.voice import get_lang_name
-
-        name = get_lang_name("zz")
-        assert name == "zz"
 
     def test_cmd_list(self, capsys):
         from horavox.voice import cmd_list
@@ -2435,44 +2437,6 @@ class TestVoiceCommand:
         cmd_list("zz")
         out = capsys.readouterr().out
         assert "No voices found" in out
-
-    def test_render_list(self):
-        from horavox.voice import render_list
-
-        voices = [
-            {"key": "test_voice", "quality": "medium", "size_mb": 60, "installed": True},
-            {"key": "other_voice", "quality": "high", "size_mb": 100, "installed": False},
-        ]
-        lines = render_list(voices, 0, "Test", "tt")
-        text = "\n".join(lines)
-        assert "test_voice" in text
-        assert "other_voice" in text
-        assert "[*]" in text
-        assert ">" in text
-
-    def test_progress_bar(self, capsys):
-        from horavox.voice import progress_bar
-
-        progress_bar("test.onnx", 5, 1024, 10240)
-        # Just verify it doesn't crash; output goes to stdout
-
-    def test_progress_bar_zero_total(self):
-        from horavox.voice import progress_bar
-
-        progress_bar("test.onnx", 0, 0, 0)  # should return early
-
-    def test_progress_bar_complete(self, capsys):
-        from horavox.voice import progress_bar
-
-        progress_bar("test.onnx", 10, 1024, 10240)  # 100%
-
-    def test_render_list_no_status(self):
-        from horavox.voice import render_list
-
-        voices = [{"key": "v1", "quality": "low", "size_mb": 30, "installed": False}]
-        lines = render_list(voices, 0, "Test", "tt")
-        assert any("v1" in line for line in lines)
-        assert not any("status" in line.lower() for line in lines)
 
     def test_get_default_voice_key_config_voice(self):
         from horavox.voice import get_default_voice_key
@@ -2518,66 +2482,51 @@ class TestVoiceCommand:
         ]
         assert get_default_voice_key(voices) is None
 
-    def test_render_list_shows_default_marker(self):
-        from horavox.voice import render_list
-
-        voices = [
-            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": True},
-            {"key": "en_US-other-high", "quality": "high", "size_mb": 100, "installed": False},
-        ]
-        lines = render_list(voices, 0, "English", "en", default_key="en_US-lessac-medium")
-        text = "\n".join(lines)
-        assert "[D]" in text
-        assert "[*]" in text
-
-    def test_render_list_no_default_when_none(self):
-        from horavox.voice import render_list
-
-        voices = [
-            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": False},
-        ]
-        lines = render_list(voices, 0, "English", "en", default_key=None)
-        text = "\n".join(lines)
-        assert "[D]" not in text
-
-    def test_cmd_list_shows_default_marker(self, capsys):
+    def test_cmd_list_shows_default_marker(self, capsys, monkeypatch):
         from horavox.voice import cmd_list
 
-        with mock.patch.object(core, "is_voice_installed", return_value=True):
-            cmd_list("pl")
+        fake_voices = [
+            {
+                "key": "pl_PL-darkman-medium",
+                "name": "",
+                "language": "pl_PL",
+                "quality": "medium",
+                "region": "",
+                "speakers": 1,
+                "size_mb": 60,
+                "installed": True,
+            },
+        ]
+        mock_vm = mock.MagicMock()
+        mock_vm.list_voices.return_value = fake_voices
+        mock_vm.get_language_name.return_value = "Polish"
+        monkeypatch.setattr(core, "_vm", mock_vm)
+        cmd_list("pl")
         out = capsys.readouterr().out
         assert "[D]" in out
 
-    def test_cmd_list_config_voice_default(self, capsys):
+    def test_cmd_list_config_voice_default(self, capsys, monkeypatch):
         from horavox.voice import cmd_list
 
-        with mock.patch.object(core, "is_voice_installed", return_value=True):
-            cmd_list("pl", config_voice="pl_PL-darkman-medium")
+        fake_voices = [
+            {
+                "key": "pl_PL-darkman-medium",
+                "name": "",
+                "language": "pl_PL",
+                "quality": "medium",
+                "region": "",
+                "speakers": 1,
+                "size_mb": 60,
+                "installed": True,
+            },
+        ]
+        mock_vm = mock.MagicMock()
+        mock_vm.list_voices.return_value = fake_voices
+        mock_vm.get_language_name.return_value = "Polish"
+        monkeypatch.setattr(core, "_vm", mock_vm)
+        cmd_list("pl", config_voice="pl_PL-darkman-medium")
         out = capsys.readouterr().out
         assert "[D]" in out
-
-    def test_render_list_with_status(self):
-        from horavox.voice import render_list
-
-        voices = [{"key": "v1", "quality": "low", "size_mb": 30, "installed": False}]
-        lines = render_list(voices, 0, "Test", "tt", status="Done!")
-        assert any("Done!" in line for line in lines)
-
-    def test_draw(self, capsys):
-        from horavox.voice import draw
-
-        draw(["line1", "line2"], 0)
-        out = capsys.readouterr().out
-        assert "line1" in out
-        assert "line2" in out
-
-    def test_draw_overwrite(self, capsys):
-        from horavox.voice import draw
-
-        draw(["first"], 0)
-        draw(["second"], 1)
-        out = capsys.readouterr().out
-        assert "second" in out
 
     def test_parse_args_list(self):
         from horavox.voice import parse_args
@@ -2598,7 +2547,6 @@ class TestVoiceCommand:
         from horavox import voice
 
         with mock.patch.object(sys, "argv", ["vox voice", "--lang", "zz"]):
-            # No voices = early return, won't crash
             voice.main()
 
     def test_exception_logs(self):
@@ -2618,178 +2566,41 @@ class TestVoiceCommand:
         assert "en_US" in out or "en_GB" in out
         assert "Quality" in out
 
-    def test_getch_regular_key(self):
-        from horavox.voice import getch
-
-        with mock.patch("sys.stdin") as mock_stdin:
-            mock_stdin.fileno.return_value = 0
-            mock_stdin.read.return_value = "q"
-            with mock.patch("termios.tcgetattr", return_value=[]):
-                with mock.patch("termios.tcsetattr"):
-                    with mock.patch("tty.setraw"):
-                        result = getch()
-        assert result == "q"
-
-    def test_getch_arrow_up(self):
-        from horavox.voice import getch
-
-        with mock.patch("sys.stdin") as mock_stdin:
-            mock_stdin.fileno.return_value = 0
-            mock_stdin.read.side_effect = ["\x1b", "[", "A"]
-            with mock.patch("termios.tcgetattr", return_value=[]):
-                with mock.patch("termios.tcsetattr"):
-                    with mock.patch("tty.setraw"):
-                        result = getch()
-        assert result == "UP"
-
-    def test_getch_arrow_down(self):
-        from horavox.voice import getch
-
-        with mock.patch("sys.stdin") as mock_stdin:
-            mock_stdin.fileno.return_value = 0
-            mock_stdin.read.side_effect = ["\x1b", "[", "B"]
-            with mock.patch("termios.tcgetattr", return_value=[]):
-                with mock.patch("termios.tcsetattr"):
-                    with mock.patch("tty.setraw"):
-                        result = getch()
-        assert result == "DOWN"
-
-    def test_getch_escape_other(self):
-        from horavox.voice import getch
-
-        with mock.patch("sys.stdin") as mock_stdin:
-            mock_stdin.fileno.return_value = 0
-            mock_stdin.read.side_effect = ["\x1b", "x"]
-            with mock.patch("termios.tcgetattr", return_value=[]):
-                with mock.patch("termios.tcsetattr"):
-                    with mock.patch("tty.setraw"):
-                        result = getch()
-        assert result is None
-
-    def test_cmd_interactive_quit(self):
-        """Test interactive mode exits on 'q' key."""
+    def test_cmd_interactive_delegates_to_browse(self, monkeypatch):
         from horavox import voice
 
-        voices = [
-            {"key": "test_v", "quality": "medium", "size_mb": 60, "installed": False},
-        ]
-        with mock.patch.object(sys, "argv", ["vox voice", "--lang", "en"]):
-            with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-                with mock.patch.object(voice, "get_lang_name", return_value="English"):
-                    with mock.patch.object(voice, "getch", return_value="q"):
-                        with mock.patch.object(voice, "draw"):
-                            voice.cmd_interactive("en")
+        mock_vm = mock.MagicMock()
+        monkeypatch.setattr(core, "_vm", mock_vm)
+        voice.cmd_interactive("en")
+        mock_vm.browse.assert_called_once()
+        config = mock_vm.browse.call_args[1]["config"]
+        assert config.lang == "en"
 
-    def test_cmd_interactive_install(self):
-        """Test interactive mode installs on 'i' key then quits."""
+    def test_cmd_interactive_passes_config_voice(self, monkeypatch):
         from horavox import voice
 
-        voices = [
-            {"key": "test_v", "quality": "medium", "size_mb": 60, "installed": False},
-        ]
-        call_count = [0]
+        mock_vm = mock.MagicMock()
+        monkeypatch.setattr(core, "_vm", mock_vm)
+        voice.cmd_interactive("pl", config_voice="pl_PL-darkman-medium")
+        config = mock_vm.browse.call_args[1]["config"]
+        assert config.default_voice == "pl_PL-darkman-medium"
 
-        def fake_getch():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "i"
-            return "q"
-
-        with mock.patch.object(sys, "argv", ["vox voice", "--lang", "en"]):
-            with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-                with mock.patch.object(voice, "get_lang_name", return_value="English"):
-                    with mock.patch.object(voice, "getch", side_effect=fake_getch):
-                        with mock.patch.object(voice, "draw"):
-                            with mock.patch.object(voice, "download_voice") as mock_dl:
-                                voice.cmd_interactive("en")
-                                mock_dl.assert_called_once_with(
-                                    "test_v", progress_cb=voice.progress_bar
-                                )
-        assert voices[0]["installed"] is True
-
-    def test_cmd_interactive_uninstall(self):
-        """Test interactive mode uninstalls on 'u' key then quits."""
+    def test_cmd_interactive_passes_test_fn(self, monkeypatch):
         from horavox import voice
 
-        voices = [
-            {"key": "test_v", "quality": "medium", "size_mb": 60, "installed": True},
-        ]
-        call_count = [0]
+        mock_vm = mock.MagicMock()
+        monkeypatch.setattr(core, "_vm", mock_vm)
+        voice.cmd_interactive("en", mode="modern")
+        config = mock_vm.browse.call_args[1]["config"]
+        assert config.test_fn is not None
 
-        def fake_getch():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "u"
-            return "q"
-
-        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-            with mock.patch.object(voice, "get_lang_name", return_value="English"):
-                with mock.patch.object(voice, "getch", side_effect=fake_getch):
-                    with mock.patch.object(voice, "draw"):
-                        with mock.patch.object(voice, "uninstall_voice") as mock_rm:
-                            voice.cmd_interactive("en")
-                            mock_rm.assert_called_once_with("test_v")
-        assert voices[0]["installed"] is False
-
-    def test_cmd_interactive_already_installed(self):
-        """Pressing 'i' on installed voice shows status."""
-        from horavox import voice
-
-        voices = [
-            {"key": "v", "quality": "medium", "size_mb": 60, "installed": True},
-        ]
-        call_count = [0]
-
-        def fake_getch():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "i"
-            return "q"
-
-        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-            with mock.patch.object(voice, "get_lang_name", return_value="Test"):
-                with mock.patch.object(voice, "getch", side_effect=fake_getch):
-                    with mock.patch.object(voice, "draw"):
-                        with mock.patch.object(voice, "download_voice") as mock_dl:
-                            voice.cmd_interactive("en")
-                            mock_dl.assert_not_called()
-
-    def test_cmd_interactive_not_installed_uninstall(self):
-        """Pressing 'u' on not-installed voice shows status."""
-        from horavox import voice
-
-        voices = [
-            {"key": "v", "quality": "medium", "size_mb": 60, "installed": False},
-        ]
-        call_count = [0]
-
-        def fake_getch():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "u"
-            return "q"
-
-        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-            with mock.patch.object(voice, "get_lang_name", return_value="Test"):
-                with mock.patch.object(voice, "getch", side_effect=fake_getch):
-                    with mock.patch.object(voice, "draw"):
-                        with mock.patch.object(voice, "uninstall_voice") as mock_rm:
-                            voice.cmd_interactive("en")
-                            mock_rm.assert_not_called()
-
-    def test_render_list_has_enter_hint(self):
-        from horavox.voice import render_list
-
-        voices = [{"key": "v1", "quality": "low", "size_mb": 30, "installed": False}]
-        lines = render_list(voices, 0, "Test", "tt")
-        text = "\n".join(lines)
-        assert "Enter" in text
-        assert "Test" in text
-
-    def test_speak_with_voice(self):
+    def test_speak_with_voice(self, monkeypatch):
         from horavox.voice import _speak_with_voice
 
         mock_piper = mock.MagicMock()
+        mock_vm = mock.MagicMock()
+        mock_vm.get_path.return_value = "/tmp/test.onnx"
+        monkeypatch.setattr(core, "_vm", mock_vm)
         with mock.patch.dict("sys.modules", {"piper": mock_piper}):
             with mock.patch("horavox.voice.speak") as mock_speak:
                 with mock.patch("horavox.voice.load_language_data") as mock_lang:
@@ -2798,43 +2609,6 @@ class TestVoiceCommand:
                         _speak_with_voice("en_US-lessac-medium", "en")
             mock_piper.PiperVoice.load.assert_called_once()
             mock_speak.assert_called_once()
-
-    def test_enter_speaks_installed_voice(self):
-        from horavox import voice
-
-        voices = [
-            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": True},
-        ]
-        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-            with mock.patch.object(voice, "get_lang_name", return_value="English"):
-                with mock.patch.object(voice, "getch", side_effect=["\r", "q"]):
-                    with mock.patch.object(voice, "draw"):
-                        with mock.patch.object(voice, "_speak_with_voice") as mock_speak:
-                            voice.cmd_interactive("en")
-                            mock_speak.assert_called_once_with(
-                                "en_US-lessac-medium", "en", "classic"
-                            )
-
-    def test_enter_installs_then_speaks(self):
-        from horavox import voice
-
-        voices = [
-            {"key": "en_US-lessac-medium", "quality": "medium", "size_mb": 60, "installed": False},
-        ]
-        with mock.patch.object(voice, "list_voices_for_language", return_value=voices):
-            with mock.patch.object(voice, "get_lang_name", return_value="English"):
-                with mock.patch.object(voice, "getch", side_effect=["\r", "q"]):
-                    with mock.patch.object(voice, "draw"):
-                        with mock.patch.object(voice, "download_voice") as mock_dl:
-                            with mock.patch.object(voice, "_speak_with_voice") as mock_speak:
-                                voice.cmd_interactive("en")
-                                mock_dl.assert_called_once_with(
-                                    "en_US-lessac-medium", progress_cb=voice.progress_bar
-                                )
-                                mock_speak.assert_called_once_with(
-                                    "en_US-lessac-medium", "en", "classic"
-                                )
-                                assert voices[0]["installed"] is True
 
 
 # ==================== completion.py ====================
