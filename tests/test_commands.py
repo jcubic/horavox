@@ -3263,8 +3263,8 @@ class TestAtRunOnce:
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
-        now = datetime.datetime.now()
-        future_time = (now + datetime.timedelta(hours=2)).replace(second=0, microsecond=0)
+        fake_now = datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        offset = fake_now - datetime.datetime.now()
         args = argparse.Namespace(voice=None, message=None, time="14:00", exit=False, exec_cmd=None)
         lang_data = {
             "hours": {},
@@ -3273,9 +3273,8 @@ class TestAtRunOnce:
             "connectors": {},
             "patterns": {"time": "{hour} {minutes}"},
         }
-        schedule = [(future_time.hour, future_time.minute)]
+        schedule = [(14, 0)]
         target_dates = [datetime.date.today()]
-        offset = datetime.timedelta(0)
 
         # Run in a thread and cancel quickly
         import threading

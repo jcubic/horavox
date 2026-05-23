@@ -850,12 +850,15 @@ class TestIsSleepActive:
 
     def test_auto_wake_range_restarted(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
-        yesterday_3pm = datetime.datetime.now().replace(
-            hour=15, minute=0, second=0, microsecond=0
-        ) - datetime.timedelta(days=1)
+        yesterday_3pm = datetime.datetime(2026, 5, 21, 15, 0, 0)
+        fake_now = datetime.datetime(2026, 5, 22, 10, 0, 0)
         sleep_file = tmp_path / "sleep.json"
         sleep_file.write_text(json.dumps({"timestamp": yesterday_3pm.timestamp()}))
-        assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is False
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.datetime.fromtimestamp = datetime.datetime.fromtimestamp
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is False
 
     def test_auto_wake_range_not_restarted(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
@@ -864,12 +867,15 @@ class TestIsSleepActive:
 
     def test_auto_wake_cross_midnight(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
-        two_days_ago_11pm = datetime.datetime.now().replace(
-            hour=23, minute=0, second=0, microsecond=0
-        ) - datetime.timedelta(days=2)
+        two_days_ago_11pm = datetime.datetime(2026, 5, 20, 23, 0, 0)
+        fake_now = datetime.datetime(2026, 5, 22, 10, 0, 0)
         sleep_file = tmp_path / "sleep.json"
         sleep_file.write_text(json.dumps({"timestamp": two_days_ago_11pm.timestamp()}))
-        assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is False
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.datetime.fromtimestamp = datetime.datetime.fromtimestamp
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is False
 
     def test_cross_midnight_still_sleeping(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
