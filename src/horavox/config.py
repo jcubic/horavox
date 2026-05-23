@@ -314,6 +314,9 @@ def _main():
                     print(f"Key '{key}' is not set.")
                 return
             mapping = cfg["mapping"]
+            if not mapping:
+                print("Error: mapping list is empty.")
+                sys.exit(1)
             if 0 <= idx < len(mapping):
                 removed = mapping.pop(idx)
                 save_config(cfg)

@@ -230,7 +230,7 @@ class TestVoxList:
 class TestVoxStop:
     def setup_method(self):
         """Stop any leftover instances before each test."""
-        while True:
+        for _ in range(20):
             rc, out, _ = run_subcommand("list")
             if not out.strip():
                 break

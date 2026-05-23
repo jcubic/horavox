@@ -115,6 +115,7 @@ def _main():
 
     sessions = get_running_sessions()
     if not sessions:
+        print("No running sessions found; nothing to mute.")
         return
 
     has_expiry = args.until is not None or args.duration is not None

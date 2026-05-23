@@ -112,6 +112,18 @@ class TestRegistry:
 
 
 class TestServiceAdd:
+    def setup_method(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="horavox-test-add-")
+        self.registry_path = os.path.join(self.tmpdir, "data.json")
+        self._patch_path = mock.patch("horavox.registry.REGISTRY_PATH", self.registry_path)
+        self._patch_user = mock.patch("horavox.registry.USER_DIR", self.tmpdir)
+        self._patch_path.start()
+        self._patch_user.start()
+
+    def teardown_method(self):
+        self._patch_path.stop()
+        self._patch_user.stop()
+
     def test_add_help(self, capsys):
         from horavox.service import _parse_add_args
 
@@ -260,10 +272,13 @@ class TestServiceAdd:
     def test_add_rejects_unknown_command(self, capsys):
         from horavox import service
 
+        add_mock = mock.MagicMock()
         with mock.patch.object(sys, "argv", ["vox service add", "bogus --foo"]):
-            with pytest.raises(SystemExit) as exc:
-                service._cmd_add()
-            assert exc.value.code == 1
+            with mock.patch.object(service, "add_instance", add_mock):
+                with pytest.raises(SystemExit) as exc:
+                    service._cmd_add()
+                assert exc.value.code == 1
+        add_mock.assert_not_called()
         out = capsys.readouterr().out
         assert "unknown command" in out.lower()
         assert "bogus" in out
@@ -271,12 +286,41 @@ class TestServiceAdd:
     def test_add_rejects_empty_after_vox_strip(self, capsys):
         from horavox import service
 
+        add_mock = mock.MagicMock()
         with mock.patch.object(sys, "argv", ["vox service add", "vox"]):
-            with pytest.raises(SystemExit) as exc:
-                service._cmd_add()
-            assert exc.value.code == 1
+            with mock.patch.object(service, "add_instance", add_mock):
+                with pytest.raises(SystemExit) as exc:
+                    service._cmd_add()
+                assert exc.value.code == 1
+        add_mock.assert_not_called()
         out = capsys.readouterr().out
         assert "empty" in out.lower()
+
+    def test_add_rejects_service_command(self, capsys):
+        from horavox import service
+
+        add_mock = mock.MagicMock()
+        with mock.patch.object(sys, "argv", ["vox service add", "service add clock"]):
+            with mock.patch.object(service, "add_instance", add_mock):
+                with pytest.raises(SystemExit) as exc:
+                    service._cmd_add()
+                assert exc.value.code == 1
+        add_mock.assert_not_called()
+        out = capsys.readouterr().out
+        assert "service" in out.lower()
+
+    def test_add_rejects_malformed_quoting(self, capsys):
+        from horavox import service
+
+        add_mock = mock.MagicMock()
+        with mock.patch.object(sys, "argv", ["vox service add", "clock --message 'unclosed"]):
+            with mock.patch.object(service, "add_instance", add_mock):
+                with pytest.raises(SystemExit) as exc:
+                    service._cmd_add()
+                assert exc.value.code == 1
+        add_mock.assert_not_called()
+        out = capsys.readouterr().out
+        assert "malformed" in out.lower()
 
 
 # ==================== service delete ====================

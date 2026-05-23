@@ -128,7 +128,11 @@ def _cmd_add():
     args = _parse_add_args()
 
     command = args.command.strip()
-    parts = shlex.split(command)
+    try:
+        parts = shlex.split(command)
+    except ValueError as e:
+        print(f"Error: malformed command: {e}")
+        sys.exit(1)
     parts = [p for p in parts if p != "--background"]
 
     if parts and parts[0] == "vox":
@@ -143,6 +147,10 @@ def _cmd_add():
     if parts[0] not in COMMANDS:
         print(f"Error: unknown command '{parts[0]}'.")
         print(f"Valid commands: {', '.join(sorted(COMMANDS))}")
+        sys.exit(1)
+
+    if parts[0] == "service":
+        print("Error: cannot add 'service' as a managed instance.")
         sys.exit(1)
 
     command = shlex.join(parts)
@@ -361,6 +369,7 @@ def _cmd_run():
     while running:
         time.sleep(2)
         _check_children(vox, children, crash_failures)
+        _reconcile(vox, children)
 
     _stop_all(children)
     log_to_file("service: stopped")

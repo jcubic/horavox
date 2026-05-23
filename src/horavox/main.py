@@ -18,6 +18,7 @@
 
 import importlib
 import os
+import shlex
 import shutil
 import sys
 
@@ -97,7 +98,7 @@ def main():
         from horavox.config import get_aliases
 
         aliases = get_aliases()
-        alias_args = aliases.get(cmd, "").split() if cmd in aliases else []
+        alias_args = shlex.split(aliases.get(cmd, "")) if cmd in aliases else []
         merged = alias_args + sys.argv[2:]
         if os.environ.get("HORAVOX_SERVICE"):
             merged = [a for a in merged if a != "--background"]

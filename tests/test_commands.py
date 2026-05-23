@@ -1387,6 +1387,20 @@ class TestAliasDispatch:
         # clock alias should not affect now command
         assert captured_argv == ["vox now", "--debug"]
 
+    def test_alias_preserves_quoted_values(self):
+        self._write_config({"settings": {}, "alias": {"now": "--message 'hello world'"}})
+        captured_argv = []
+
+        def fake_main():
+            captured_argv.extend(sys.argv)
+
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "now"]):
+            with mock.patch("horavox.now.main", side_effect=fake_main):
+                main()
+        assert captured_argv == ["vox now", "--message", "hello world"]
+
     def test_service_strips_background_from_alias(self):
         self._write_config(
             {"settings": {}, "alias": {"clock": "--start 9 --end 1 --background --freq 30"}}
@@ -3117,6 +3131,20 @@ class TestConfigAdditionalCoverage:
         out = capsys.readouterr().out
         assert "out of range" in out
 
+    def test_mapping_unset_empty_list(self, capsys):
+        import json
+
+        from horavox.config import _main
+
+        data = {"settings": {}, "alias": {}, "mapping": []}
+        with open(self.config_path, "w") as f:
+            json.dump(data, f)
+        with mock.patch.object(sys, "argv", ["vox config", "--unset", "mapping.0"]):
+            with pytest.raises(SystemExit):
+                _main()
+        out = capsys.readouterr().out
+        assert "empty" in out.lower()
+
     def test_config_get_mapping_list(self, capsys):
         import json
 
@@ -3651,7 +3679,7 @@ class TestSleepCommand:
         monkeypatch.setattr(sys, "argv", ["vox sleep"])
         _main()
         assert not (tmp_path / "sleep.json").exists()
-        assert capsys.readouterr().out == ""
+        assert "no running sessions" in capsys.readouterr().out.lower()
 
     def test_sleep_creates_file(self, tmp_path, monkeypatch, capsys):
         from horavox.sleep import _main
