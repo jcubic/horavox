@@ -1,20 +1,36 @@
+# Copyright (C) 2026 Jakub T. Jankiewicz <https://jakub.jankiewicz.org/>
+#
+# This file is part of HoraVox.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 """HoraVox shared library — paths, logging, language, TTS, voice, session management."""
 
-import array
 import datetime
-import glob
 import json
 import locale
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
 import traceback
-import urllib.request
-import wave
 
-__version__ = "0.2.0"
+from voxkit import VoiceManager
+from voxkit.tts import play_mp3, play_wav, scale_volume, synthesize, synthesize_multi
+
+__version__ = "0.3.0"
 
 # ================== PATHS ==================
 # Package data (ships with the package, read-only)
@@ -26,20 +42,49 @@ BEEP_MP3 = os.path.join(DATA_DIR, "beep.mp3")
 
 # User data (writable, created at runtime)
 USER_DIR = os.path.expanduser("~/.horavox")
-VOICES_DIR = os.path.join(USER_DIR, "voices")
 CACHE_DIR = os.path.join(USER_DIR, "cache")
 SESSIONS_DIR = os.path.join(USER_DIR, "sessions")
+SLEEP_FILE = os.path.join(USER_DIR, "sleep.json")
+LEGACY_VOICES_DIR = os.path.join(USER_DIR, "voices")
 
-VOICES_JSON_URL = os.environ.get(
-    "HORAVOX_VOICES_JSON_URL",
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json",
-)
-VOICES_BASE_URL = os.environ.get(
-    "HORAVOX_VOICES_BASE_URL",
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main",
-)
 TEMP_WAV = f"/tmp/horavox-{os.getpid()}.wav"
 LOG_FILE = os.path.join(USER_DIR, "horavox.log")
+
+_vm = None
+
+
+def _migrate_legacy_voices(models_dir):
+    """Move voice files from legacy voices/ to models/ directory."""
+    if not os.path.isdir(LEGACY_VOICES_DIR):
+        return
+    for name in os.listdir(LEGACY_VOICES_DIR):
+        src = os.path.join(LEGACY_VOICES_DIR, name)
+        dst = os.path.join(models_dir, name)
+        if os.path.isfile(src) and not os.path.exists(dst):
+            try:
+                shutil.move(src, dst)
+            except OSError:  # pragma: no cover
+                log_to_file(f"Failed to migrate voice file: {name}")
+    try:
+        if not os.listdir(LEGACY_VOICES_DIR):
+            os.rmdir(LEGACY_VOICES_DIR)
+    except OSError:  # pragma: no cover
+        pass
+
+
+def get_voice_manager():
+    """Return the shared VoiceManager instance (lazy init)."""
+    global _vm
+    if _vm is None:
+        _vm = VoiceManager(
+            data_dir=USER_DIR,
+            catalog_url=os.environ.get("HORAVOX_VOICES_JSON_URL"),
+            base_url=os.environ.get("HORAVOX_VOICES_BASE_URL"),
+        )
+        _migrate_legacy_voices(_vm.voices_dir)
+    return _vm
+
+
 # ============================================
 
 VERBOSE = False
@@ -210,163 +255,21 @@ def get_spoken_time(lang_data, hour, minute):
 
 
 def ensure_user_dirs():
-    """Create ~/.horavox/ subdirectories for cache, voices, and sessions."""
+    """Create ~/.horavox/ subdirectories for cache and sessions."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    os.makedirs(VOICES_DIR, exist_ok=True)
     os.makedirs(SESSIONS_DIR, exist_ok=True)
-
-
-def get_voices_catalog():
-    """Fetch and cache the Piper voices catalog from Hugging Face."""
-    ensure_user_dirs()
-    cache_file = os.path.join(CACHE_DIR, "voices.json")
-
-    if os.path.exists(cache_file):
-        age = time.time() - os.path.getmtime(cache_file)
-        if age < 86400:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-
-    log("Fetching voice catalog from Hugging Face...")
-    try:
-        req = urllib.request.Request(VOICES_JSON_URL)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        return data
-    except Exception as e:
-        if os.path.exists(cache_file):
-            log(f"Warning: could not refresh catalog ({e}), using cached version.")
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        print(f"Error: could not fetch voice catalog: {e}")
-        sys.exit(1)
-
-
-def list_voices_for_language(lang):
-    """List available Piper voices for a language family."""
-    catalog = get_voices_catalog()
-    matches = []
-    for key, info in catalog.items():
-        family = info.get("language", {}).get("family", "")
-        if family == lang:
-            size_bytes = sum(
-                f.get("size_bytes", 0)
-                for f in info.get("files", {}).values()
-                if f.get("size_bytes")
-            )
-            size_mb = size_bytes / (1024 * 1024)
-            installed = is_voice_installed(key)
-            matches.append(
-                {
-                    "key": key,
-                    "name": info.get("name", ""),
-                    "quality": info.get("quality", ""),
-                    "region": info.get("language", {}).get("country_english", ""),
-                    "speakers": info.get("num_speakers", 1),
-                    "size_mb": size_mb,
-                    "installed": installed,
-                }
-            )
-
-    matches.sort(key=lambda v: v["key"])
-    return matches
-
-
-def is_voice_installed(voice_key):
-    """Check if a voice's .onnx file exists in the voices directory."""
-    onnx_path = os.path.join(VOICES_DIR, f"{voice_key}.onnx")
-    return os.path.exists(onnx_path)
-
-
-def download_voice(voice_key, progress_cb=None):
-    """Download a voice from Hugging Face to the voices directory.
-
-    progress_cb(filename, block_num, block_size, total_size) is called
-    during download if provided. Pass None for silent/default output.
-    """
-    catalog = get_voices_catalog()
-    if voice_key not in catalog:
-        print(f"Error: voice '{voice_key}' not found in catalog.")
-        print("Use 'vox voice' to see available voices.")
-        sys.exit(1)
-
-    info = catalog[voice_key]
-    os.makedirs(VOICES_DIR, exist_ok=True)
-
-    for file_path, file_info in info.get("files", {}).items():
-        filename = os.path.basename(file_path)
-        dest = os.path.join(VOICES_DIR, filename)
-
-        if os.path.exists(dest):
-            continue
-
-        url = f"{VOICES_BASE_URL}/{file_path}"
-
-        if progress_cb is None:
-            size_mb = file_info.get("size_bytes", 0) / (1024 * 1024)
-            print(f"Downloading {filename} ({size_mb:.1f} MB)...")
-
-        def hook(block_num, block_size, total_size):
-            if progress_cb:
-                progress_cb(filename, block_num, block_size, total_size)
-
-        try:
-            urllib.request.urlretrieve(url, dest, reporthook=hook)
-        except Exception as e:
-            print(f"Error downloading {filename}: {e}")
-            if os.path.exists(dest):
-                os.remove(dest)
-            sys.exit(1)
-
-    if progress_cb is None:
-        print(f"Voice '{voice_key}' installed.")
-
-
-def uninstall_voice(voice_key):
-    """Remove a voice's files from ~/.horavox/voices/."""
-    removed = False
-    for ext in (".onnx", ".onnx.json"):
-        path = os.path.join(VOICES_DIR, f"{voice_key}{ext}")
-        if os.path.exists(path):
-            os.remove(path)
-            removed = True
-    if removed:
-        print(f"Voice '{voice_key}' uninstalled.")
-    else:
-        print(f"Voice '{voice_key}' not found.")
-
-
-def find_voice_for_language(lang):
-    """Find an installed voice matching the language. Returns .onnx path or None."""
-    pattern = os.path.join(VOICES_DIR, f"{lang}_*.onnx")
-    matches = [f for f in glob.glob(pattern) if not f.endswith(".onnx.json")]
-    if matches:
-        for m in matches:
-            if "-medium." in m:
-                return m
-        return matches[0]
-    return None
 
 
 def resolve_voice(voice_name, lang):
     """Resolve which voice to use. Downloads if needed. Returns .onnx path."""
-    if voice_name:
-        onnx_path = os.path.join(VOICES_DIR, f"{voice_name}.onnx")
-        if not os.path.exists(onnx_path):
-            log(f"Voice '{voice_name}' not found locally, downloading...")
-            download_voice(voice_name)
-        return onnx_path
-
-    voice_path = find_voice_for_language(lang)
-    if voice_path:
-        return voice_path
-
-    print(f"No voice installed for language '{lang}'.")
-    print(f"Run: vox voice --lang {lang} (then press 'i' to install)")
-    print(f"Or list available voices: vox voice --list --lang {lang}")
-    sys.exit(1)
+    vm = get_voice_manager()
+    try:
+        return vm.resolve(voice=voice_name, lang=lang)
+    except FileNotFoundError:
+        print(f"No voice installed for language '{lang}'.")
+        print(f"Run: vox voice --lang {lang} (then press 'i' to install)")
+        print(f"Or list available voices: vox voice --list --lang {lang}")
+        sys.exit(1)
 
 
 # ==================== TTS ====================
@@ -377,11 +280,7 @@ def play_blank():
     if NOSOUND:
         return
     if os.path.exists(BLANK_MP3):
-        subprocess.run(
-            ["mpg123", "-q", BLANK_MP3],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        play_mp3(BLANK_MP3)
 
 
 def play_beep():
@@ -389,11 +288,7 @@ def play_beep():
     if NOSOUND:
         return
     if os.path.exists(BEEP_MP3):
-        cmd = ["mpg123", "-q"]
-        if VOLUME < 100:
-            cmd += ["-f", str(int(VOLUME * 32768 / 100))]
-        cmd.append(BEEP_MP3)
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        play_mp3(BEEP_MP3, volume=VOLUME)
 
 
 def beep_count_for_minute(minute):
@@ -405,31 +300,26 @@ def beep_count_for_minute(minute):
     return 0
 
 
-def scale_wav_volume(path):
-    """Scale WAV sample amplitudes to match VOLUME (1-100)."""
-    if VOLUME >= 100:
-        return
-    scale = VOLUME / 100.0
-    with wave.open(path, "rb") as r:
-        params = r.getparams()
-        frames = r.readframes(r.getnframes())
-    samples = array.array("h", frames)
-    for i in range(len(samples)):
-        samples[i] = max(-32768, min(32767, int(samples[i] * scale)))
-    with wave.open(path, "wb") as w:
-        w.setparams(params)
-        w.writeframes(samples.tobytes())
-
-
 def prepare_speech(voice, text):
     """Synthesize WAV and play blank MP3 to warm up Bluetooth audio."""
     log(f"Preparing: {text}")
     if NOSOUND:
         return
-    log_spoken(text)
-    with wave.open(TEMP_WAV, "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
-    scale_wav_volume(TEMP_WAV)
+    log_spoken(text)  # pragma: no cover
+    synthesize(voice, text, TEMP_WAV)
+    scale_volume(TEMP_WAV, VOLUME)
+    play_blank()
+
+
+def prepare_combined_speech(voice, texts, pause_ms=700):
+    """Synthesize multiple texts into one WAV with pauses between them."""
+    log(f"Preparing combined: {texts}")
+    if NOSOUND:
+        return
+    for t in texts:
+        log_spoken(t)
+    synthesize_multi(voice, texts, TEMP_WAV, pause_ms)
+    scale_volume(TEMP_WAV, VOLUME)
     play_blank()
 
 
@@ -438,7 +328,7 @@ def play_speech():
     log("Playing speech")
     if NOSOUND:
         return
-    subprocess.run(["aplay", TEMP_WAV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    play_wav(TEMP_WAV)
     if os.path.exists(TEMP_WAV):
         os.remove(TEMP_WAV)
 
@@ -449,6 +339,27 @@ def speak(voice, text, beep_count=0):
     for _ in range(beep_count):
         play_beep()
     play_speech()
+
+
+def run_exec(command, text, target, message=None):
+    """Run --exec command with TEXT, TIME, DATE, MESSAGE as env vars."""
+    if not isinstance(command, str) or not command:
+        return
+    env = os.environ.copy()
+    env["TEXT"] = text
+    env["TIME"] = target.strftime("%H:%M")
+    env["DATE"] = target.strftime("%Y-%m-%d")
+    env["MESSAGE"] = message or ""
+    try:
+        subprocess.Popen(
+            command,
+            shell=True,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as e:
+        log(f"  --exec error: {e}")
 
 
 # ==================== SESSION MANAGEMENT ====================
@@ -478,16 +389,30 @@ def get_running_sessions():
     return sessions
 
 
-def create_session(pid, session_id):
+def create_session(pid, session_id, session_type=None, start=None, end=None):
     """Create a session file for a new daemon instance."""
     session_file = os.path.join(SESSIONS_DIR, f"{session_id}.json")
     data = {
         "pid": pid,
         "command": " ".join(sys.argv),
     }
+    if session_type:
+        data["type"] = session_type
+    if start is not None:
+        data["start"] = start
+    if end is not None:
+        data["end"] = end
     with open(session_file, "w", encoding="utf-8") as f:
         json.dump(data, f)
     return session_file
+
+
+def remove_session(session_id):
+    """Remove session files for a given session ID."""
+    for ext in (".json", ".pid"):
+        path = os.path.join(SESSIONS_DIR, f"{session_id}{ext}")
+        if os.path.exists(path):
+            os.remove(path)
 
 
 def kill_session(path, data):
@@ -511,6 +436,76 @@ def kill_session(path, data):
     pid_path = path.replace(".json", ".pid")
     if os.path.exists(pid_path):
         os.remove(pid_path)
+
+
+# ==================== SLEEP ====================
+
+
+def read_sleep():
+    """Read sleep file. Returns dict or None."""
+    if not os.path.exists(SLEEP_FILE):
+        return None
+    try:
+        with open(SLEEP_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if "timestamp" not in data:
+            return None
+        return data
+    except (json.JSONDecodeError, OSError):
+        log("Warning: corrupt sleep file, ignoring.")
+        return None
+
+
+def write_sleep(until=None):
+    """Write sleep file atomically."""
+    data = {"timestamp": time.time()}
+    if until is not None:
+        data["until"] = until
+    tmp = SLEEP_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    os.rename(tmp, SLEEP_FILE)
+
+
+def clear_sleep():
+    """Remove sleep file."""
+    try:
+        os.remove(SLEEP_FILE)
+    except OSError:
+        pass
+
+
+def _next_range_start_after(sleep_timestamp, start_minutes):
+    """Find the first range start datetime after the sleep timestamp."""
+    sleep_dt = datetime.datetime.fromtimestamp(sleep_timestamp)
+    start_h = start_minutes // 60
+    start_m = start_minutes % 60
+    candidate = sleep_dt.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    if candidate <= sleep_dt:
+        candidate += datetime.timedelta(days=1)
+    return candidate
+
+
+def is_sleep_active(start_minutes=None, end_minutes=None):
+    """Check if sleep is active for a daemon with the given range.
+
+    Pass start_minutes/end_minutes for daemons with a time range (auto-wake).
+    Pass None for daemons without a range (no auto-wake).
+    Full-day range (0:00-23:59) is treated as no range.
+    """
+    sleep_data = read_sleep()
+    if sleep_data is None:
+        return False
+    if sleep_data.get("until") is not None and time.time() >= sleep_data["until"]:
+        clear_sleep()
+        return False
+    if start_minutes is not None and end_minutes is not None:
+        full_day = start_minutes == 0 and end_minutes == time_to_minutes(23, 59)
+        if not full_day:
+            next_start = _next_range_start_after(sleep_data["timestamp"], start_minutes)
+            if datetime.datetime.now() >= next_start:
+                return False
+    return True
 
 
 # ==================== TIME UTILITIES ====================

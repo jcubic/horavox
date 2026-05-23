@@ -1,0 +1,469 @@
+# Copyright (C) 2026 Jakub T. Jankiewicz <https://jakub.jankiewicz.org/>
+#
+# This file is part of HoraVox.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""vox service — manage autostart service instances."""
+
+import argparse
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import time
+
+from horavox.core import USER_DIR, log_error, log_to_file
+from horavox.platforms import get_platform
+from horavox.registry import (
+    add_instance,
+    list_instances,
+    remove_all,
+    remove_instance,
+)
+
+SUBCOMMANDS = {
+    "add": "Add a command as an autostart service instance",
+    "delete": "Delete installed service instances",
+    "list": "List installed service instances",
+    "start": "Start the service (register and run)",
+    "restart": "Restart the service",
+    "status": "Show service and instance status",
+    "run": "Run the service manager (internal)",
+}
+
+
+def setup_parser(parser):
+    subs = parser.add_subparsers(dest="subcommand")
+    add_p = subs.add_parser("add", help=SUBCOMMANDS["add"])
+    add_p.add_argument("command", help='Command to install (e.g. "clock --lang pl --freq 30")')
+    del_p = subs.add_parser("delete", help=SUBCOMMANDS["delete"])
+    del_p.add_argument("id", nargs="?", help="Instance ID to remove")
+    del_p.add_argument(
+        "--all", action="store_true", dest="remove_all", help="Remove all installed instances"
+    )
+    subs.add_parser("list", help=SUBCOMMANDS["list"])
+    subs.add_parser("start", help=SUBCOMMANDS["start"])
+    subs.add_parser("restart", help=SUBCOMMANDS["restart"])
+    subs.add_parser("status", help=SUBCOMMANDS["status"])
+    subs.add_parser("run", help=argparse.SUPPRESS)
+
+
+def main():
+    try:
+        _main()
+    except KeyboardInterrupt:
+        pass
+    except Exception:
+        log_error()
+        raise
+
+
+def _print_help():
+    print("Usage: vox service <subcommand> [options]\n")
+    print("Subcommands:")
+    for name, desc in SUBCOMMANDS.items():
+        if name == "run":
+            continue
+        print(f"  {name:<10} {desc}")
+    print()
+    print("Run 'vox service <subcommand> --help' for subcommand-specific options.")
+
+
+def _main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        _print_help()
+        return
+
+    subcmd = sys.argv[1]
+    sys.argv = [f"vox service {subcmd}"] + sys.argv[2:]
+
+    if subcmd == "add":
+        _cmd_add()
+    elif subcmd == "delete":
+        _cmd_delete()
+    elif subcmd == "list":
+        _cmd_list()
+    elif subcmd == "start":
+        _cmd_start()
+    elif subcmd == "restart":
+        _cmd_restart()
+    elif subcmd == "status":
+        _cmd_status()
+    elif subcmd == "run":
+        _cmd_run()
+    else:
+        print(f"Unknown subcommand: {subcmd}\n")
+        _print_help()
+        sys.exit(1)
+
+
+# ==================== add ====================
+
+
+def _parse_add_args():
+    parser = argparse.ArgumentParser(
+        description="Install a command as an autostart service instance",
+        prog="vox service add",
+    )
+    parser.add_argument(
+        "command",
+        help='Command to install (e.g. "clock --lang pl --freq 30")',
+    )
+    return parser.parse_args()
+
+
+def _cmd_add():
+    args = _parse_add_args()
+
+    command = args.command.strip()
+    try:
+        parts = shlex.split(command)
+    except ValueError as e:
+        print(f"Error: malformed command: {e}")
+        sys.exit(1)
+    parts = [p for p in parts if p != "--background"]
+
+    if parts and parts[0] == "vox":
+        parts = parts[1:]
+
+    if not parts:
+        print("Error: empty command.")
+        sys.exit(1)
+
+    from horavox.main import COMMANDS
+
+    if parts[0] not in COMMANDS:
+        print(f"Error: unknown command '{parts[0]}'.")
+        print(f"Valid commands: {', '.join(sorted(COMMANDS))}")
+        sys.exit(1)
+
+    if parts[0] == "service":
+        print("Error: cannot add 'service' as a managed instance.")
+        sys.exit(1)
+
+    command = shlex.join(parts)
+
+    entry = add_instance(command)
+    print(f"Installed instance {entry['id']}: {command}")
+
+    platform = get_platform()
+    if not platform.is_registered():
+        platform.register()
+        platform.start()
+        print("Service registered and started.")
+    elif platform.is_running():
+        platform.reload()
+        print("Service reloaded.")
+    else:
+        platform.start()
+        print("Service started.")
+
+
+# ==================== delete ====================
+
+
+def _parse_delete_args():
+    parser = argparse.ArgumentParser(
+        description="Remove installed service instances",
+        prog="vox service delete",
+    )
+    parser.add_argument(
+        "id",
+        nargs="?",
+        help="Instance ID to remove",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        dest="remove_all",
+        help="Remove all installed instances",
+    )
+    return parser.parse_args()
+
+
+def _unregister_if_empty():
+    if not list_instances():
+        platform = get_platform()
+        if platform.is_registered():
+            platform.unregister()
+            print("Service unregistered (no instances left).")
+
+
+def _cmd_delete():
+    args = _parse_delete_args()
+
+    if args.remove_all:
+        count = remove_all()
+        if count == 0:
+            print("No installed instances.")
+            return
+        print(f"Removed {count} instance{'s' if count != 1 else ''}.")
+        platform = get_platform()
+        if platform.is_registered():
+            platform.unregister()
+            print("Service unregistered.")
+        return
+
+    if not args.id:
+        instances = list_instances()
+        if not instances:
+            print("No installed instances.")
+            return
+        import inquirer
+
+        choices = []
+        for inst in instances:
+            label = f"{inst['id']}  {inst['command']}"
+            choices.append((label, inst["id"]))
+        try:
+            questions = [
+                inquirer.List(
+                    "instance",
+                    message="Select instance to remove",
+                    choices=choices,
+                )
+            ]
+            answer = inquirer.prompt(questions)
+        except KeyboardInterrupt:
+            return
+        if answer is None:
+            return
+        instance_id = answer["instance"]
+    else:
+        instance_id = args.id
+
+    if remove_instance(instance_id):
+        print(f"Removed instance {instance_id}.")
+        platform = get_platform()
+        if platform.is_running():
+            platform.reload()
+        _unregister_if_empty()
+    else:
+        print(f"No instance with ID '{instance_id}'.")
+        sys.exit(1)
+
+
+# ==================== list ====================
+
+
+def _cmd_list():
+    instances = list_instances()
+    if not instances:
+        print("No installed instances.")
+        return
+    print(f"{'ID':<8} {'Installed':<22} {'Command'}")
+    print(f"{'—' * 8} {'—' * 22} {'—' * 40}")
+    for inst in instances:
+        ts = inst["installed_at"][:19].replace("T", " ")
+        print(f"{inst['id']:<8} {ts:<22} {inst['command']}")
+
+
+# ==================== start ====================
+
+
+def _cmd_start():
+    platform = get_platform()
+    if not list_instances():
+        print("No installed instances. Use 'vox service add' first.")
+        sys.exit(1)
+    if not platform.is_registered():
+        platform.register()
+    if platform.is_running():
+        print("Service is already running.")
+        return
+    platform.start()
+    print("Service started.")
+
+
+# ==================== restart ====================
+
+
+def _cmd_restart():
+    if not list_instances():
+        print("No installed instances. Use 'vox service add' first.")
+        sys.exit(1)
+    platform = get_platform()
+    if not platform.is_registered():
+        platform.register()
+        platform.start()
+        print("Service started.")
+        return
+    if platform.is_running():
+        platform.stop()
+        platform.start()
+        print("Service restarted.")
+    else:
+        platform.start()
+        print("Service started.")
+
+
+# ==================== status ====================
+
+
+def _cmd_status():
+    platform = get_platform()
+    registered = platform.is_registered()
+    running = platform.is_running() if registered else False
+    instances = list_instances()
+
+    if running:
+        print("Service: running")
+    elif registered:
+        print("Service: stopped")
+    else:
+        print("Service: not installed")
+
+    if not instances:
+        print("Instances: none")
+        return
+
+    print(f"Instances: {len(instances)}")
+    print()
+    print(f"  {'ID':<8} {'Command'}")
+    print(f"  {'—' * 8} {'—' * 40}")
+    for inst in instances:
+        print(f"  {inst['id']:<8} {inst['command']}")
+
+
+# ==================== run (internal manager) ====================
+
+
+def _cmd_run():  # pragma: no cover
+    os.makedirs(USER_DIR, exist_ok=True)
+    log_to_file("service: starting")
+
+    vox = os.path.join(os.path.dirname(sys.executable), "vox")
+    children = {}
+    crash_failures = {}
+    running = True
+
+    def reload_config(signum=None, frame=None):
+        _reconcile(vox, children)
+
+    def shutdown(signum=None, frame=None):
+        nonlocal running
+        running = False
+        log_to_file("service: shutting down")
+        _stop_all(children)
+
+    if sys.platform != "win32":
+        signal.signal(signal.SIGHUP, reload_config)
+        signal.signal(signal.SIGTERM, shutdown)
+    else:
+        signal.signal(signal.SIGTERM, shutdown)
+
+    _reconcile(vox, children)
+
+    while running:
+        time.sleep(2)
+        _check_children(vox, children, crash_failures)
+        _reconcile(vox, children)
+
+    _stop_all(children)
+    log_to_file("service: stopped")
+
+
+def _reconcile(vox, children):
+    instances = list_instances()
+    wanted_ids = {inst["id"] for inst in instances}
+    command_map = {inst["id"]: inst["command"] for inst in instances}
+
+    for iid in list(children.keys()):
+        if iid not in wanted_ids:
+            log_to_file(f"service: stopping removed instance {iid}")
+            _stop_child(children, iid)
+
+    for iid in wanted_ids:
+        if iid not in children:
+            cmd = command_map[iid]
+            _start_child(vox, children, iid, cmd)
+
+
+def _start_child(vox, children, instance_id, command):
+    args = shlex.split(command)
+    log_to_file(f"service: starting instance {instance_id}: {command}")
+    env = os.environ.copy()
+    env["HORAVOX_SERVICE"] = "1"
+    try:
+        proc = subprocess.Popen(
+            [vox] + args + ["--nosound"] if os.environ.get("HORAVOX_TEST") else [vox] + args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+        children[instance_id] = proc
+    except OSError as e:
+        log_to_file(f"service: failed to start {instance_id}: {e}")
+
+
+def _stop_child(children, instance_id):
+    proc = children.pop(instance_id, None)
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def _stop_all(children):
+    for iid in list(children.keys()):
+        _stop_child(children, iid)
+
+
+MAX_CRASH_COUNT = 5
+
+
+def _check_children(vox, children, crash_failures=None):
+    if crash_failures is None:
+        crash_failures = {}
+    instances = list_instances()
+    command_map = {inst["id"]: inst["command"] for inst in instances}
+    for iid in list(children.keys()):
+        proc = children[iid]
+        if proc.poll() is not None:
+            if iid not in command_map:
+                del children[iid]
+                crash_failures.pop(iid, None)
+            elif proc.returncode == 1:
+                log_to_file(
+                    f"service: instance {iid} failed (exit 1), removing: {command_map[iid]}"
+                )
+                del children[iid]
+                crash_failures.pop(iid, None)
+                remove_instance(iid)
+            elif proc.returncode != 0:
+                count = crash_failures.get(iid, 0) + 1
+                crash_failures[iid] = count
+                if count > MAX_CRASH_COUNT:
+                    log_to_file(f"service: instance {iid} crashed {count} times, giving up")
+                    del children[iid]
+                else:
+                    log_to_file(
+                        f"service: instance {iid} crashed (exit {proc.returncode}),"
+                        f" restarting ({count}/{MAX_CRASH_COUNT})"
+                    )
+                    del children[iid]
+                    _start_child(vox, children, iid, command_map[iid])
+            else:
+                log_to_file(f"service: instance {iid} completed (exit 0)")
+                del children[iid]
+                crash_failures.pop(iid, None)
+                remove_instance(iid)
+                log_to_file(f"service: removed completed instance {iid} from registry")
+
+
+if __name__ == "__main__":
+    main()

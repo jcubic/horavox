@@ -1,9 +1,12 @@
 """Unit tests for horavox.core — language, time, voice, session utilities."""
 
+import datetime
 import json
 import os
 import sys
 import tempfile
+import time
+import unittest.mock
 
 import pytest
 
@@ -343,81 +346,69 @@ class TestBeepCount:
 # ==================== voice management ====================
 
 
-class TestVoiceManagement:
-    def test_is_voice_installed_false(self):
-        assert core.is_voice_installed("nonexistent_voice_xyz") is False
-
-    def test_is_voice_installed_true(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "test_voice.onnx").write_text("")
-        assert core.is_voice_installed("test_voice") is True
-
-    def test_list_voices_for_unknown_language(self):
-        voices = core.list_voices_for_language("zz")
-        assert voices == []
-
-    def test_list_voices_returns_list(self):
-        voices = core.list_voices_for_language("en")
-        assert isinstance(voices, list)
-        if voices:
-            v = voices[0]
-            assert "key" in v
-            assert "quality" in v
-            assert "size_mb" in v
-            assert "installed" in v
-
-    def test_find_voice_for_language_none(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        assert core.find_voice_for_language("xx") is None
-
-    def test_find_voice_prefers_medium(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "en_US-low-low.onnx").write_text("")
-        (tmp_path / "en_US-lessac-medium.onnx").write_text("")
-        result = core.find_voice_for_language("en")
-        assert "medium" in result
-
-    def test_find_voice_first_fallback(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "en_US-low-low.onnx").write_text("")
-        result = core.find_voice_for_language("en")
-        assert result is not None
-
+class TestResolveVoice:
     def test_resolve_voice_existing(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "test_voice.onnx").write_text("")
+        monkeypatch.setattr(core, "_vm", None)
+        vm = core.VoiceManager(data_dir=str(tmp_path))
+        monkeypatch.setattr(core, "_vm", vm)
+        models_dir = tmp_path / "models"
+        (models_dir / "test_voice.onnx").write_text("")
         path = core.resolve_voice("test_voice", "en")
-        assert path.endswith("test_voice.onnx")
-
-    def test_resolve_voice_auto_detect(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "en_US-test-medium.onnx").write_text("")
-        path = core.resolve_voice(None, "en")
-        assert "en_US" in path
+        assert "test_voice.onnx" in path
 
     def test_resolve_voice_no_voice(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
+        monkeypatch.setattr(core, "_vm", None)
+        vm = core.VoiceManager(data_dir=str(tmp_path))
+        monkeypatch.setattr(core, "_vm", vm)
         with pytest.raises(SystemExit):
             core.resolve_voice(None, "zz")
 
-    def test_uninstall_voice(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        (tmp_path / "test_v.onnx").write_text("")
-        (tmp_path / "test_v.onnx.json").write_text("{}")
-        core.uninstall_voice("test_v")
-        assert not (tmp_path / "test_v.onnx").exists()
-        assert not (tmp_path / "test_v.onnx.json").exists()
-        assert "uninstalled" in capsys.readouterr().out
 
-    def test_uninstall_voice_not_found(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path))
-        core.uninstall_voice("nonexistent")
-        assert "not found" in capsys.readouterr().out
+# ==================== Legacy voice migration ====================
 
-    def test_download_voice_not_in_catalog(self, monkeypatch):
-        monkeypatch.setattr(core, "get_voices_catalog", lambda: {})
-        with pytest.raises(SystemExit):
-            core.download_voice("nonexistent_voice")
+
+class TestMigrateLegacyVoices:
+    def test_moves_files_from_voices_to_models(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        (voices_dir / "en_US-lessac-medium.onnx").write_text("model")
+        (voices_dir / "en_US-lessac-medium.onnx.json").write_text("{}")
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(voices_dir))
+        core._migrate_legacy_voices(str(models_dir))
+        assert (models_dir / "en_US-lessac-medium.onnx").exists()
+        assert (models_dir / "en_US-lessac-medium.onnx.json").exists()
+        assert not voices_dir.exists()
+
+    def test_skips_existing_files_in_models(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        (voices_dir / "voice.onnx").write_text("old")
+        models_dir = tmp_path / "models"
+        models_dir.mkdir()
+        (models_dir / "voice.onnx").write_text("new")
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(voices_dir))
+        core._migrate_legacy_voices(str(models_dir))
+        assert (models_dir / "voice.onnx").read_text() == "new"
+        assert (voices_dir / "voice.onnx").exists()
+
+    def test_noop_when_no_legacy_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(tmp_path / "voices"))
+        core._migrate_legacy_voices(str(tmp_path / "models"))
+
+    def test_get_voice_manager_triggers_migration(self, tmp_path, monkeypatch):
+        voices_dir = tmp_path / "voices"
+        voices_dir.mkdir()
+        (voices_dir / "pl_PL-test.onnx").write_text("model")
+        (voices_dir / "pl_PL-test.onnx.json").write_text("{}")
+        monkeypatch.setattr(core, "_vm", None)
+        monkeypatch.setattr(core, "USER_DIR", str(tmp_path))
+        monkeypatch.setattr(core, "LEGACY_VOICES_DIR", str(voices_dir))
+        core.get_voice_manager()
+        assert (tmp_path / "models" / "pl_PL-test.onnx").exists()
+        assert (tmp_path / "models" / "pl_PL-test.onnx.json").exists()
+        monkeypatch.setattr(core, "_vm", None)
 
 
 # ==================== TTS functions ====================
@@ -431,22 +422,21 @@ class TestTTS:
     def test_play_blank_nosound(self, monkeypatch):
         core.NOSOUND = True
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(1))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append(1))
         core.play_blank()
         assert called == []
 
     def test_play_blank_sound(self, monkeypatch):
         core.NOSOUND = False
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(a))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append(a))
         core.play_blank()
         assert len(called) == 1
-        assert "mpg123" in called[0][0][0]
 
     def test_play_beep_nosound(self, monkeypatch):
         core.NOSOUND = True
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(1))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append(1))
         core.play_beep()
         assert called == []
 
@@ -454,24 +444,24 @@ class TestTTS:
         core.NOSOUND = False
         core.VOLUME = 50
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(a[0]))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append((a, kw)))
         core.play_beep()
         assert len(called) == 1
-        assert "-f" in called[0]
+        assert called[0][1].get("volume") == 50
 
     def test_play_beep_full_volume(self, monkeypatch):
         core.NOSOUND = False
         core.VOLUME = 100
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(a[0]))
+        monkeypatch.setattr("horavox.core.play_mp3", lambda *a, **kw: called.append((a, kw)))
         core.play_beep()
         assert len(called) == 1
-        assert "-f" not in called[0]
+        assert called[0][1].get("volume") == 100
 
     def test_play_speech_nosound(self, monkeypatch):
         core.NOSOUND = True
         called = []
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: called.append(1))
+        monkeypatch.setattr("horavox.core.play_wav", lambda *a, **kw: called.append(1))
         core.play_speech()
         assert called == []
 
@@ -480,9 +470,9 @@ class TestTTS:
         wav = tmp_path / "test.wav"
         wav.write_text("")
         monkeypatch.setattr(core, "TEMP_WAV", str(wav))
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: None)
+        monkeypatch.setattr("horavox.core.play_wav", lambda *a, **kw: None)
         core.play_speech()
-        assert not wav.exists()  # removed after play
+        assert not wav.exists()
 
     def test_prepare_speech_nosound(self, monkeypatch):
         core.NOSOUND = True
@@ -495,6 +485,23 @@ class TestTTS:
         core.NOSOUND = True
         core.speak(None, "test", beep_count=2)
         # Should not crash
+
+    def test_prepare_combined_speech_nosound(self, monkeypatch):
+        core.NOSOUND = True
+        called = []
+        monkeypatch.setattr(core, "log_spoken", lambda t: called.append(t))
+        core.prepare_combined_speech(None, ["hello", "world"])
+        assert called == []  # log_spoken not called in nosound
+
+    def test_prepare_combined_speech_logs_all_texts(self, monkeypatch):
+        core.NOSOUND = False
+        logged = []
+        monkeypatch.setattr(core, "log_spoken", lambda t: logged.append(t))
+        monkeypatch.setattr(core, "play_blank", lambda: None)
+        monkeypatch.setattr("horavox.core.synthesize_multi", lambda *a, **kw: None)
+        monkeypatch.setattr("horavox.core.scale_volume", lambda *a, **kw: None)
+        core.prepare_combined_speech(None, ["hello", "world"], pause_ms=100)
+        assert logged == ["hello", "world"]
 
 
 # ==================== session management ====================
@@ -662,63 +669,307 @@ class TestLogging:
 class TestEnsureUserDirs:
     def test_creates_dirs(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "CACHE_DIR", str(tmp_path / "cache"))
-        monkeypatch.setattr(core, "VOICES_DIR", str(tmp_path / "voices"))
         monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path / "sessions"))
         core.ensure_user_dirs()
         assert (tmp_path / "cache").is_dir()
-        assert (tmp_path / "voices").is_dir()
         assert (tmp_path / "sessions").is_dir()
 
 
-# ==================== scale_wav_volume ====================
+# ==================== remove_session ====================
 
 
-class TestScaleWavVolume:
-    def _make_wav(self, path, samples_list):
-        import array as arr_mod
-        import wave as wav_mod
+class TestRemoveSession:
+    def test_removes_json_and_pid(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        sid = "test-session-id"
+        json_file = tmp_path / f"{sid}.json"
+        pid_file = tmp_path / f"{sid}.pid"
+        json_file.write_text("{}")
+        pid_file.write_text("12345")
+        core.remove_session(sid)
+        assert not json_file.exists()
+        assert not pid_file.exists()
 
-        samples = arr_mod.array("h", samples_list)
-        with wav_mod.open(path, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(22050)
-            w.writeframes(samples.tobytes())
+    def test_removes_only_existing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        sid = "test-session-id"
+        json_file = tmp_path / f"{sid}.json"
+        json_file.write_text("{}")
+        core.remove_session(sid)
+        assert not json_file.exists()
 
-    def _read_wav(self, path):
-        import array as arr_mod
-        import wave as wav_mod
 
-        with wav_mod.open(path, "rb") as r:
-            frames = r.readframes(r.getnframes())
-        return arr_mod.array("h", frames)
+# ==================== kill_session ====================
 
-    def test_no_change_at_100(self, tmp_path):
-        core.VOLUME = 100
-        wav = str(tmp_path / "test.wav")
-        self._make_wav(wav, [1000, -1000, 500])
-        core.scale_wav_volume(wav)
-        result = self._read_wav(wav)
-        assert list(result) == [1000, -1000, 500]
-        core.VOLUME = 100
 
-    def test_scale_at_50(self, tmp_path):
-        core.VOLUME = 50
-        wav = str(tmp_path / "test.wav")
-        self._make_wav(wav, [1000, -1000, 500])
-        core.scale_wav_volume(wav)
-        result = self._read_wav(wav)
-        assert result[0] == 500
-        assert result[1] == -500
-        assert result[2] == 250
-        core.VOLUME = 100
+class TestKillSession:
+    def test_kill_success(self, tmp_path, capsys):
+        path = str(tmp_path / "test.json")
+        pid_path = str(tmp_path / "test.pid")
+        with open(path, "w") as f:
+            f.write("{}")
+        with open(pid_path, "w") as f:
+            f.write("12345")
+        data = {"pid": 99999}
 
-    def test_clamp_at_max(self, tmp_path):
-        core.VOLUME = 50
-        wav = str(tmp_path / "test.wav")
-        self._make_wav(wav, [32767, -32768])
-        core.scale_wav_volume(wav)
-        result = self._read_wav(wav)
-        assert result[0] == 16383
-        assert result[1] == -16384
-        core.VOLUME = 100
+        with unittest.mock.patch("os.kill") as mock_kill:
+            mock_kill.side_effect = [None, OSError("No such process")]
+            core.kill_session(path, data)
+        out = capsys.readouterr().out
+        assert "Stopped" in out
+        assert not os.path.exists(path)
+
+    def test_kill_timeout_sigkill(self, capsys, tmp_path):
+        path = str(tmp_path / "test.json")
+        pid_path = str(tmp_path / "test.pid")
+        with open(path, "w") as f:
+            f.write("{}")
+        with open(pid_path, "w") as f:
+            f.write("12345")
+        data = {"pid": 99999}
+        import signal
+
+        kill_calls = []
+
+        def fake_kill(pid, sig):
+            kill_calls.append(sig)
+            if sig == signal.SIGKILL:
+                return
+            if sig == 0:
+                return  # process still alive
+
+        with unittest.mock.patch("os.kill", side_effect=fake_kill):
+            with unittest.mock.patch("time.sleep"):
+                core.kill_session(path, data)
+        assert signal.SIGKILL in kill_calls
+
+    def test_kill_os_error(self, capsys, tmp_path):
+        path = str(tmp_path / "test.json")
+        with open(path, "w") as f:
+            f.write("{}")
+        data = {"pid": 99999}
+        with unittest.mock.patch("os.kill", side_effect=OSError("Permission denied")):
+            core.kill_session(path, data)
+        out = capsys.readouterr().out
+        assert "Error stopping" in out
+
+
+# ==================== parse_time_arg error ====================
+
+
+class TestParseTimeArgError:
+    def test_invalid_time_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            core.parse_time_arg("25:00")
+
+    def test_invalid_format_exits(self, capsys):
+        with pytest.raises(SystemExit):
+            core.parse_time_arg("abc")
+
+
+# ==================== Sleep ====================
+
+
+class TestReadWriteSleep:
+    def test_read_sleep_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        assert core.read_sleep() is None
+
+    def test_write_and_read_sleep(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        data = core.read_sleep()
+        assert data is not None
+        assert "timestamp" in data
+
+    def test_write_sleep_with_until(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        until = time.time() + 3600
+        core.write_sleep(until=until)
+        data = core.read_sleep()
+        assert data["until"] == until
+
+    def test_clear_sleep(self, tmp_path, monkeypatch):
+        sleep_file = tmp_path / "sleep.json"
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        core.write_sleep()
+        assert sleep_file.exists()
+        core.clear_sleep()
+        assert not sleep_file.exists()
+
+    def test_clear_sleep_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.clear_sleep()
+
+    def test_read_sleep_corrupt_json(self, tmp_path, monkeypatch):
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text("{invalid json")
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        core.VERBOSE = True
+        assert core.read_sleep() is None
+        core.VERBOSE = False
+
+    def test_read_sleep_missing_timestamp(self, tmp_path, monkeypatch):
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text('{"other": "data"}')
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        assert core.read_sleep() is None
+
+    def test_write_sleep_atomic(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert not (tmp_path / "sleep.json.tmp").exists()
+        assert (tmp_path / "sleep.json").exists()
+
+
+class TestIsSleepActive:
+    def test_no_sleep_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        assert core.is_sleep_active() is False
+
+    def test_sleep_active_no_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active() is True
+
+    def test_sleep_active_full_day_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=0, end_minutes=1439) is True
+
+    def test_sleep_expired_until(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep(until=time.time() - 10)
+        assert core.is_sleep_active() is False
+        assert not (tmp_path / "sleep.json").exists()
+
+    def test_sleep_not_expired_until(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep(until=time.time() + 3600)
+        assert core.is_sleep_active() is True
+
+    def test_auto_wake_range_restarted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        yesterday_3pm = datetime.datetime(2026, 5, 21, 15, 0, 0)
+        fake_now = datetime.datetime(2026, 5, 22, 10, 0, 0)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": yesterday_3pm.timestamp()}))
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.datetime.fromtimestamp = datetime.datetime.fromtimestamp
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is False
+
+    def test_auto_wake_range_not_restarted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is True
+
+    def test_auto_wake_cross_midnight(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        two_days_ago_11pm = datetime.datetime(2026, 5, 20, 23, 0, 0)
+        fake_now = datetime.datetime(2026, 5, 22, 10, 0, 0)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": two_days_ago_11pm.timestamp()}))
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.datetime.fromtimestamp = datetime.datetime.fromtimestamp
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is False
+
+    def test_cross_midnight_still_sleeping(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is True
+
+
+class TestNextRangeStartAfter:
+    def test_sleep_before_range_start(self):
+        now = datetime.datetime(2026, 5, 22, 7, 0, 0)
+        ts = now.timestamp()
+        result = core._next_range_start_after(ts, 480)
+        assert result == datetime.datetime(2026, 5, 22, 8, 0, 0)
+
+    def test_sleep_after_range_start(self):
+        now = datetime.datetime(2026, 5, 22, 15, 0, 0)
+        ts = now.timestamp()
+        result = core._next_range_start_after(ts, 480)
+        assert result == datetime.datetime(2026, 5, 23, 8, 0, 0)
+
+    def test_sleep_at_range_start(self):
+        now = datetime.datetime(2026, 5, 22, 8, 0, 0)
+        ts = now.timestamp()
+        result = core._next_range_start_after(ts, 480)
+        assert result == datetime.datetime(2026, 5, 23, 8, 0, 0)
+
+
+class TestCreateSessionExtended:
+    def test_session_with_type(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id", session_type="clock")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert data["type"] == "clock"
+        assert data["pid"] == 123
+
+    def test_session_with_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id", session_type="clock", start="8:00", end="22:00")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert data["start"] == "8:00"
+        assert data["end"] == "22:00"
+
+    def test_session_without_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id", session_type="at")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert "start" not in data
+        assert "end" not in data
+        assert data["type"] == "at"
+
+    def test_session_backward_compatible(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(tmp_path))
+        core.create_session(123, "test-id")
+        with open(tmp_path / "test-id.json") as f:
+            data = json.load(f)
+        assert "type" not in data
+        assert "start" not in data
+
+
+# ==================== run_exec ====================
+
+
+class TestRunExec:
+    def test_sets_env_vars(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            target = datetime.datetime(2026, 5, 22, 14, 30)
+            core.run_exec("echo test", "quarter past two", target, "reminder")
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["TEXT"] == "quarter past two"
+        assert env["MESSAGE"] == "reminder"
+        assert env["TIME"] == "14:30"
+        assert env["DATE"] == "2026-05-22"
+
+    def test_none_command_noop(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            core.run_exec(None, "text", datetime.datetime.now())
+        mock_popen.assert_not_called()
+
+    def test_empty_message_defaults_to_empty_string(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            core.run_exec("echo test", "text", datetime.datetime.now())
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["MESSAGE"] == ""
+
+    def test_oserror_logged(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen", side_effect=OSError("fail")):
+            core.VERBOSE = True
+            core.run_exec("bad_cmd", "text", datetime.datetime.now())
+            core.VERBOSE = False
+
+    def test_shell_true(self):
+        with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
+            core.run_exec("notify-send test", "text", datetime.datetime.now())
+        assert mock_popen.call_args.kwargs["shell"] is True

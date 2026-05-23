@@ -1,7 +1,24 @@
+# Copyright (C) 2026 Jakub T. Jankiewicz <https://jakub.jankiewicz.org/>
+#
+# This file is part of HoraVox.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 """HoraVox — main entry point. Dispatches to subcommands."""
 
 import importlib
 import os
+import shlex
 import shutil
 import sys
 
@@ -11,8 +28,37 @@ COMMANDS = {
     "clock": ("horavox.clock", "Run the speaking clock"),
     "now": ("horavox.now", "Speak the current time once"),
     "stop": ("horavox.stop", "Stop running background instances"),
+    "list": ("horavox.list", "List running background instances"),
+    "sleep": ("horavox.sleep", "Mute all running daemons"),
+    "wakeup": ("horavox.wakeup", "Resume all sleeping daemons"),
     "voice": ("horavox.voice", "Manage Piper voice models"),
+    "at": ("horavox.at", "Speak the time at specified times"),
+    "config": ("horavox.config", "Get or set default configuration"),
+    "service": ("horavox.service", "Manage autostart service instances"),
+    "completion": ("horavox.completion", "Generate shell completion scripts"),
 }
+
+
+def build_parser():
+    """Build the full argparse parser tree (used by argcomplete for completion)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="vox",
+        description="HoraVox — the voice of the hour",
+    )
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="version",
+        version=f"vox {__version__}",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    for name, (module_path, desc) in COMMANDS.items():
+        mod = importlib.import_module(module_path)
+        sub = subparsers.add_parser(name, help=desc)
+        mod.setup_parser(sub)
+    return parser
 
 
 def print_help():
@@ -20,13 +66,27 @@ def print_help():
     print("Usage: vox <command> [options]\n")
     print("Commands:")
     for name, (_, desc) in COMMANDS.items():
-        print(f"  {name:<10} {desc}")
+        print(f"  {name:<12} {desc}")
     print()
     print("Run 'vox <command> --help' for command-specific options.")
     print("Run 'vox --version' to show the version.")
 
 
 def main():
+    # Shell completion: build full parser tree only when completing
+    if "_ARGCOMPLETE" in os.environ:
+        parser = build_parser()
+        import argcomplete
+
+        argcomplete.autocomplete(parser)
+        return
+
+    # Update check (skip for service-managed processes and completion)
+    if not os.environ.get("HORAVOX_SERVICE"):
+        from horavox.update import check_for_update
+
+        check_for_update()
+
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print_help()
         return
@@ -35,7 +95,14 @@ def main():
         return
     cmd = sys.argv[1]
     if cmd in COMMANDS:
-        sys.argv = [f"vox {cmd}"] + sys.argv[2:]
+        from horavox.config import get_aliases
+
+        aliases = get_aliases()
+        alias_args = shlex.split(aliases.get(cmd, "")) if cmd in aliases else []
+        merged = alias_args + sys.argv[2:]
+        if os.environ.get("HORAVOX_SERVICE"):
+            merged = [a for a in merged if a != "--background"]
+        sys.argv = [f"vox {cmd}"] + merged
         mod = importlib.import_module(COMMANDS[cmd][0])
         mod.main()
         return

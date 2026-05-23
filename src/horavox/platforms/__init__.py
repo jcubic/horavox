@@ -14,5 +14,24 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-from horavox.core import __version__ as __version__
-from horavox.main import main as main
+"""Platform detection and service registration backends."""
+
+import sys
+
+
+def get_platform():
+    """Return the current platform backend module."""
+    if sys.platform == "linux":
+        from horavox.platforms import linux
+
+        return linux
+    elif sys.platform == "darwin":  # pragma: no cover
+        from horavox.platforms import macos
+
+        return macos
+    elif sys.platform == "win32":  # pragma: no cover
+        from horavox.platforms import windows
+
+        return windows
+    else:
+        raise RuntimeError(f"Unsupported platform: {sys.platform}")

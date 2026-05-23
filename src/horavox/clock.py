@@ -1,3 +1,19 @@
+# Copyright (C) 2026 Jakub T. Jankiewicz <https://jakub.jankiewicz.org/>
+#
+# This file is part of HoraVox.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 """vox clock — run the speaking clock."""
 
 import argparse
@@ -19,6 +35,7 @@ from horavox.core import (
     ensure_user_dirs,
     get_spoken_time,
     is_in_range,
+    is_sleep_active,
     load_language_data,
     log,
     log_error,
@@ -26,19 +43,16 @@ from horavox.core import (
     parse_time_range,
     play_beep,
     play_speech,
+    prepare_combined_speech,
     prepare_speech,
+    remove_session,
     resolve_voice,
-    speak,
+    run_exec,
     time_to_minutes,
 )
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Run the speaking clock",
-        prog="vox clock",
-    )
-
+def setup_parser(parser):
     parser.add_argument(
         "--lang",
         type=str,
@@ -116,12 +130,47 @@ def parse_args():
         action="store_true",
         help="Alias for --nosound --verbose",
     )
+    parser.add_argument(
+        "--exec",
+        type=str,
+        default=None,
+        dest="exec_cmd",
+        metavar="CMD",
+        help="Run CMD after each announcement ($TEXT, $TIME, $DATE, $MESSAGE)",
+    )
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run the speaking clock",
+        prog="vox clock",
+    )
+    setup_parser(parser)
     return parser.parse_args()
+
+
+def _find_mapping_message(mapping, hour, minute, weekday):
+    """Find a matching mapping entry for the given time and weekday."""
+    time_key = f"{hour}:{minute:02d}"
+    for entry in mapping:
+        if entry["time"] != time_key:
+            continue
+        if "date" not in entry:
+            return entry.get("message")
+        from horavox.at import parse_repeat
+
+        repeat_days = parse_repeat(",".join(entry["date"]))
+        if weekday in repeat_days:
+            return entry.get("message")
+    return None
 
 
 def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
     """Main clock loop. Runs in foreground or as daemon action."""
+    from horavox.config import get_mapping, load_config
+
+    mapping = get_mapping()
+    mapping_time = load_config()["settings"].get("mapping", {}).get("time", "true") != "false"
 
     def get_now():
         return datetime.datetime.now() + time_offset
@@ -129,7 +178,7 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
     # Load voice (intentionally here — after daemon fork to avoid threading issues)
     if core.NOSOUND:
         voice = None
-    else:
+    else:  # pragma: no cover
         voice_path = resolve_voice(args.voice, lang)
         voice_name = os.path.basename(voice_path).replace(".onnx", "")
         log(f"Loading voice: {voice_name}")
@@ -160,14 +209,33 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
             target += datetime.timedelta(days=1)
         return target, target_hour, target_minute
 
+    def speak_with_mapping(voice, lang_data, hour, minute, weekday):
+        message = _find_mapping_message(mapping, hour, minute, weekday)
+        text = get_spoken_time(lang_data, hour, minute)
+        if message and mapping_time:
+            prepare_combined_speech(voice, [text, message])
+            spoken = f"{text} {message}"
+        elif message:
+            prepare_speech(voice, message)
+            spoken = message
+        else:
+            prepare_speech(voice, text)
+            spoken = text
+        return spoken, message
+
     # --exit mode
     if args.exit:
         now = get_now()
         frac_sec = now.second + now.microsecond / 1_000_000
         if now.minute % freq == 0 and frac_sec < 5:
             if is_in_range(now.hour, now.minute, start_minutes, end_minutes):
-                text = get_spoken_time(lang_data, now.hour, now.minute)
-                speak(voice, text, beep_count=beep_count_for_minute(now.minute))
+                spoken, msg = speak_with_mapping(
+                    voice, lang_data, now.hour, now.minute, now.weekday()
+                )
+                for _ in range(beep_count_for_minute(now.minute)):
+                    play_beep()
+                play_speech()
+                run_exec(args.exec_cmd, spoken, now, msg)
             else:
                 log(f"  {now.hour}:{now.minute:02d} outside range ({range_str}), skipping.")
         else:
@@ -198,14 +266,19 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         if in_window and target != last_announced:
             last_announced = target
             if is_in_range(target_hour, target_minute, start_minutes, end_minutes):
-                text = get_spoken_time(lang_data, target_hour, target_minute)
-                prepare_speech(voice, text)
+                if is_sleep_active(start_minutes, end_minutes):
+                    log(f"  {target_hour}:{target_minute:02d} sleeping, skipping.")
+                    continue
+                spoken, msg = speak_with_mapping(
+                    voice, lang_data, target_hour, target_minute, target.weekday()
+                )
                 remaining = (target - get_now()).total_seconds()
                 if remaining > 0:
                     time.sleep(remaining)
                 for _ in range(beep_count_for_minute(target_minute)):
                     play_beep()
                 play_speech()
+                run_exec(args.exec_cmd, spoken, target, msg)
             else:
                 log(f"  {target_hour}:{target_minute:02d} outside range ({range_str}), skipping.")
             continue
@@ -213,7 +286,7 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         time.sleep(TICK)
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:
@@ -225,6 +298,9 @@ def main():
 
 def _main():
     args = parse_args()
+    from horavox.config import apply_config
+
+    apply_config(args)
     configure(
         verbose=args.verbose,
         nosound=args.nosound,
@@ -257,7 +333,7 @@ def _main():
         time_offset = datetime.timedelta(0)
 
     # --background mode
-    if args.background:
+    if args.background:  # pragma: no cover
         if not core.NOSOUND:
             voice_path = resolve_voice(args.voice, lang)
             if not os.path.exists(voice_path):
@@ -268,13 +344,23 @@ def _main():
         session_id = str(uuid.uuid4())
         pid_file = os.path.join(SESSIONS_DIR, f"{session_id}.pid")
 
+        has_range = not (start_minutes == 0 and end_minutes == 23 * 60 + 59)
+
         def daemon_action():
-            create_session(os.getpid(), session_id)
+            create_session(
+                os.getpid(),
+                session_id,
+                session_type="clock",
+                start=f"{start_h}:{start_m:02d}" if has_range else None,
+                end=f"{end_h}:{end_m:02d}" if has_range else None,
+            )
             try:
                 run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes)
             except Exception:
                 log_error()
                 raise
+            finally:
+                remove_session(session_id)
 
         daemon = Daemonize(
             app="horavox",

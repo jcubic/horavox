@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "horavox"
-version = "0.2.0"
+version = "0.3.0"
 description = "HoraVox - a multi-language speaking clock using local AI voice models"
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-or-later"
 requires-python = ">=3.10"
 authors = [
     {name = "Jakub T. Jankiewicz", email = "me@jcubic.pl"},
@@ -22,9 +22,11 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
-    "piper-tts",
+    "voxkit",
     "daemonize",
     "inquirer",
+    "argcomplete",
+    "semver",
 ]
 
 [project.urls]
@@ -37,7 +39,10 @@ vox = "horavox.main:main"
 vox-clock = "horavox.clock:main"
 vox-now = "horavox.now:main"
 vox-stop = "horavox.stop:main"
+vox-list = "horavox.list:main"
 vox-voice = "horavox.voice:main"
+vox-sleep = "horavox.sleep:main"
+vox-wakeup = "horavox.wakeup:main"
 
 [tool.ruff]
 line-length = 100
@@ -47,6 +52,18 @@ select = ["E", "F", "W", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+
+[tool.coverage.run]
+omit = [
+    "src/horavox/platforms/macos.py",
+    "src/horavox/platforms/windows.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == .__main__.",
+    "pragma: no cover",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

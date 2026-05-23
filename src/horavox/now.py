@@ -1,3 +1,19 @@
+# Copyright (C) 2026 Jakub T. Jankiewicz <https://jakub.jankiewicz.org/>
+#
+# This file is part of HoraVox.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 """vox now — speak the current time once and exit."""
 
 import argparse
@@ -17,12 +33,7 @@ from horavox.core import (
 )
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Speak the current time once and exit",
-        prog="vox now",
-    )
-
+def setup_parser(parser):
     parser.add_argument(
         "--lang",
         type=str,
@@ -64,6 +75,14 @@ def parse_args():
         help="Volume level 0-100 percent (default: 100, 0 = no sound)",
     )
     parser.add_argument(
+        "--message",
+        "-m",
+        type=str,
+        default=None,
+        metavar="TEXT",
+        help="Speak custom text instead of the current time",
+    )
+    parser.add_argument(
         "--nosound",
         action="store_true",
         help="Same as --volume 0 — skip voice loading and audio playback",
@@ -74,10 +93,17 @@ def parse_args():
         help="Alias for --nosound --verbose",
     )
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Speak the current time once and exit",
+        prog="vox now",
+    )
+    setup_parser(parser)
     return parser.parse_args()
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:
@@ -89,6 +115,9 @@ def main():
 
 def _main():
     args = parse_args()
+    from horavox.config import apply_config
+
+    apply_config(args)
     configure(
         verbose=args.verbose,
         nosound=args.nosound,
@@ -102,7 +131,7 @@ def _main():
     # Load voice
     if core.NOSOUND:
         voice = None
-    else:
+    else:  # pragma: no cover
         from piper import PiperVoice
 
         voice_path = resolve_voice(args.voice, lang)
@@ -114,7 +143,10 @@ def _main():
         now = datetime.datetime.now()
         h, m = now.hour, now.minute
 
-    text = get_spoken_time(lang_data, h, m)
+    if args.message:
+        text = args.message
+    else:
+        text = get_spoken_time(lang_data, h, m)
     speak(voice, text, beep_count=beep_count_for_minute(m))
 
 

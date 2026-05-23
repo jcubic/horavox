@@ -1,3 +1,19 @@
+# Copyright (C) 2026 Jakub T. Jankiewicz <https://jakub.jankiewicz.org/>
+#
+# This file is part of HoraVox.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 """vox stop — stop running background instances."""
 
 import argparse
@@ -10,12 +26,7 @@ from horavox.core import (
 )
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Stop running background instances",
-        prog="vox stop",
-    )
-
+def setup_parser(parser):
     parser.add_argument(
         "--pid",
         type=int,
@@ -23,22 +34,18 @@ def parse_args():
         metavar="PID",
         help="Stop a specific instance by PID",
     )
-    parser.add_argument(
-        "--list",
-        action="store_true",
-        dest="list_sessions",
-        help="List running instances (batch mode)",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Include command line in --list output",
-    )
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Stop running background instances",
+        prog="vox stop",
+    )
+    setup_parser(parser)
     return parser.parse_args()
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:
@@ -51,15 +58,6 @@ def main():
 def _main():
     args = parse_args()
     sessions = get_running_sessions()
-
-    # --list mode: print PIDs for scripting
-    if args.list_sessions:
-        for _, data in sessions:
-            if args.verbose:
-                print(f"{data['pid']}\t{data.get('command', '?')}")
-            else:
-                print(data["pid"])
-        return
 
     # --pid mode: stop a specific instance
     if args.pid is not None:

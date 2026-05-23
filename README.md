@@ -3,11 +3,12 @@
        alt="HoraVox logotype: a simplistic analog clock and text HORAVOX" />
 </h1>
 
-[![pip](https://img.shields.io/badge/pip-0.2.0-blue.svg)](https://pypi.org/project/horavox/)
+[![pip](https://img.shields.io/badge/pip-0.3.0-blue.svg)](https://pypi.org/project/horavox/)
 [![CI](https://github.com/jcubic/horavox/actions/workflows/ci.yml/badge.svg)](https://github.com/jcubic/horavox/actions/workflows/ci.yml)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/horavox?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/horavox)
 [![horavox GitHub repo](https://img.shields.io/badge/github-horavox-orange?logo=github)](https://github.com/jcubic/horavox)
 [![Coverage Status](https://coveralls.io/repos/github/jcubic/horavox/badge.svg?branch=master)](https://coveralls.io/github/jcubic/horavox?branch=master)
-[![LICENSE MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jcubic/horavox/blob/master/LICENSE)
+[![LICENSE GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/jcubic/horavox/blob/master/LICENSE)
 
 A multi-language speaking clock that announces the time using [Piper](https://github.com/rhasspy/piper) text-to-speech. It runs entirely offline using local AI voice models -- no API key or internet connection required (except for the initial voice download). It speaks the current hour on the hour using natural language idioms (e.g., "quarter past two", "wpół do czwartej") and supports any language through JSON data files.
 
@@ -22,7 +23,12 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Flexible scheduling** -- restrict announcements to a time range (e.g., 7:00--22:00)
 - **Configurable interval** -- announce every N minutes with `--freq` (e.g., every 30 min)
 - **Volume control** -- set volume 0--100% with `--volume`
+- **Scheduled announcements** -- speak the time (or a custom message) at specific times with `vox at`
 - **Background mode** -- run as a daemon with `--background`, stop with `--stop`
+- **Time-based messages** -- attach custom messages to specific times with recurring schedules via `vox config mapping.add`
+- **Sleep / wake** -- temporarily mute all running daemons with `vox sleep`, auto-wakes when the time range restarts
+- **Autostart service** -- add as a system service with `vox service add`, runs on login
+- **Command hooks** -- run a shell command after each announcement with `--exec` (e.g., desktop notifications)
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
 - **Simulated time** -- debug with `--time HH:MM` to set a fake starting time
 - **Silent by default** -- no terminal output unless `--verbose` is passed
@@ -65,8 +71,15 @@ vox <command> [options]
 |---------|-------------|
 | `vox clock` | Run the speaking clock |
 | `vox now` | Speak the current time once |
+| `vox list` | List running background instances |
 | `vox stop` | Stop running background instances |
+| `vox sleep` | Mute all running daemons |
+| `vox wakeup` | Resume all sleeping daemons |
 | `vox voice` | Manage Piper voice models |
+| `vox at` | Speak the time or a custom message at specified times |
+| `vox config` | Get or set default configuration |
+| `vox service` | Manage autostart service (add/delete/list/start/restart/status) |
+| `vox completion` | Generate shell completion scripts |
 
 Run `vox <command> --help` for command-specific options.
 
@@ -82,6 +95,7 @@ vox clock --mode modern                            # digital style ("siedemnasta
 vox clock --background                             # run as a daemon
 vox clock --lang pl --voice pl_PL-darkman-medium   # specific language and voice
 vox clock --volume 50                              # 50% volume
+vox clock --exec 'notify-send "HoraVox" "$TEXT"'   # desktop notification on each announcement
 ```
 
 Time range accepts `H`, `HH`, `H:MM`, or `HH:MM`. Supports midnight wrap (e.g., `--start 22 --end 6`).
@@ -101,18 +115,38 @@ vox now --mode modern          # digital style
 vox now --volume 30            # quiet
 ```
 
-### vox stop
+### vox stop / vox list
 
-Stop running background instances:
+Stop and list running background instances:
 
 ```bash
+vox list                       # print PIDs of running instances
+vox list --verbose             # include command lines
 vox stop                       # interactive selection if multiple instances
 vox stop --pid 12345           # stop a specific instance
-vox stop --list                # print PIDs (for scripting)
-vox stop --list --verbose      # include command lines
 ```
 
 When multiple instances are running, `vox stop` shows an interactive menu with arrow-key selection.
+
+### vox sleep / vox wakeup
+
+Temporarily mute all running daemons without stopping them:
+
+```bash
+vox sleep                      # mute everything until range restarts
+vox sleep --until 08:00        # mute until 8:00 AM
+vox sleep --for 2h             # mute for 2 hours
+vox sleep --for 1h30m          # mute for 1 hour 30 minutes
+vox wakeup                     # resume all daemons immediately
+```
+
+When used with `vox clock` that has a `--start`/`--end` range, sleep auto-wakes when the range restarts. For example, if the clock runs 8:00--22:00 and you sleep at 15:00, it stays muted until 8:00 the next day. Cross-midnight ranges work too -- a clock running 22:00--2:00 that sleeps at 23:00 auto-wakes at 22:00 the next evening.
+
+A clock without an explicit range (`--start`/`--end`) requires `--until` or `--for` since there is no range boundary to auto-wake on.
+
+`vox at` instances respect sleep but have no range concept, so they only resume on `vox wakeup` or when `--until`/`--for` expires.
+
+`vox list` shows a `[sleeping]` marker next to muted instances.
 
 ### vox voice
 
@@ -125,11 +159,183 @@ vox voice --list               # non-interactive list (for scripting)
 vox voice --list --lang pl     # non-interactive for a specific language
 ```
 
-Installed voices are marked with `[*]`. Downloads show a progress bar below the list.
+Installed voices are marked with `[*]`. The default voice (the one that would be used by `vox clock` or `vox now`) is marked with `[D]`. Press `Enter` to test a voice -- it speaks the current time. If the voice isn't installed, it downloads it first. Downloads show a progress bar below the list.
 
 ### Volume and sound
 
 `--nosound` is equivalent to `--volume 0` -- both skip voice loading and audio playback entirely. Available on `vox clock` and `vox now`.
+
+### vox at
+
+Speak the time at specific times — one-shot or recurring like Google Calendar:
+
+```bash
+# One-shot (waits, speaks, exits)
+vox at 12:55                                  # speak at 12:55 today
+vox at 12:55 --date 2026-05-10               # speak at 12:55 on a specific date
+vox at 12:55 --date friday                   # speak at 12:55 next Friday (never today)
+vox at 12:55 --date friday,2026-12-25        # multiple dates (day names + exact)
+vox at 9:00,12:00,18:00                       # multiple times today
+
+# Recurring (persistent loop)
+vox at 12:55 --repeat everyday                # every day at 12:55
+vox at 12:55 --repeat sunday,wednesday        # specific days of the week
+vox at 9:00,18:00 --repeat weekdays           # weekdays only
+vox at 8:00 --repeat weekends --lang pl       # Polish, weekends only
+
+# Custom message (speak text instead of the time)
+vox at 12:00 --repeat weekdays -m "Time for lunch"
+vox at 9:00 --message "Stand-up meeting in 5 minutes"
+
+# Common flags
+vox at 9:00 --repeat everyday --background    # run as a daemon
+vox at 9:00 --repeat everyday --volume 30     # quiet
+
+# Run a command after each announcement
+vox at 9:00 --repeat weekdays --exec 'notify-send "HoraVox" "$TEXT"'
+```
+
+Times are comma-separated in `HH:MM` format. The `--date` flag accepts day names (`monday`–`sunday`) or exact dates (`YYYY-MM-DD`), comma-separated; day names always resolve to the next occurrence (never today). The `--repeat` flag accepts day keywords: `monday`–`sunday`, `everyday`, `weekdays`, `weekends`. `--date` and `--repeat` are mutually exclusive. Without either, the process runs for today and exits after the last scheduled time.
+
+Use `--message` / `-m` to speak custom text instead of the current time — useful for reminders. Beeps still play as usual.
+
+Supports the same `--lang`, `--voice`, `--mode`, `--volume`, `--background`, and `--debug` flags as `vox clock`.
+
+Works with `vox service add` too:
+
+```bash
+vox service add "at 12:55 --repeat sunday,wednesday --volume 50"
+vox service add "at 9:00 --repeat weekdays -m 'Stand-up meeting'"
+```
+
+### --exec (run a command after announcements)
+
+Both `vox clock` and `vox at` support `--exec CMD` to run a shell command after each announcement. The following environment variables are available in the command:
+
+| Variable | Description |
+|----------|-------------|
+| `$TEXT` | The full spoken text |
+| `$TIME` | Announced time in HH:MM format |
+| `$DATE` | Current date in YYYY-MM-DD format |
+| `$MESSAGE` | Custom message (from `--message` or mapping), empty if none |
+
+Desktop notification examples for each platform:
+
+```bash
+# Linux (notify-send)
+vox clock --exec 'notify-send "HoraVox" "$TEXT"'
+
+# macOS (osascript)
+vox clock --exec 'osascript -e "display notification \"$TEXT\" with title \"HoraVox\""'
+
+# Windows (PowerShell + BurntToast)
+vox clock --exec 'powershell -Command "New-BurntToastNotification -Text \"HoraVox\",\"$TEXT\""'
+```
+
+The command runs asynchronously (fire-and-forget) so it won't block the next announcement.
+
+### vox config
+
+Set default values and aliases so you don't have to repeat common flags:
+
+```bash
+vox config lang=pl                     # default language
+vox config voice=pl_PL-mc_speech-medium # default voice
+vox config mode=classic                # default time style
+vox config volume=30                   # default volume (0-100)
+vox config                             # list all settings and aliases
+vox config lang                        # show a single setting
+vox config --unset voice               # remove a setting
+```
+
+Settings are stored in `~/.horavox/config.json` and apply to `vox clock`, `vox now`, `vox at`, and `vox voice`. Command-line flags always override config values.
+
+#### Aliases
+
+Aliases work like git aliases -- define default arguments for any subcommand:
+
+```bash
+vox config alias.clock '--start 9 --end 1 --background --freq 30 --volume 30'
+vox config alias.now '--mode modern'
+```
+
+Now `vox clock` expands to `vox clock --start 9 --end 1 --background --freq 30 --volume 30`. Explicit arguments override alias defaults:
+
+```bash
+vox clock --volume 50    # overrides --volume 30 from the alias
+```
+
+Manage aliases the same way as settings:
+
+```bash
+vox config alias.clock                 # show an alias
+vox config --unset alias.clock         # remove an alias
+```
+
+#### Time-based messages (mapping)
+
+Attach custom messages to specific clock times. When `vox clock` fires at a mapped time, it speaks the time followed by a short pause and the message:
+
+```bash
+vox config mapping.add 17:00 'feed the cat'                           # every day at 17:00
+vox config mapping.add 9:00 'stand-up meeting' --date weekdays        # weekdays only
+vox config mapping.add 8:00 'weekend run' --date saturday,sunday      # specific days
+vox config mapping.add 12:00 'lunch time' --date monday,wednesday,friday
+vox config mapping                                                     # list all entries
+vox config --unset mapping.0                                           # remove by index
+```
+
+The `--date` flag accepts the same values as `vox at --repeat`: day names (`monday`--`sunday`), `everyday`, `weekdays`, `weekends`, comma-separated. Without `--date`, the message plays every day. Entries without a message text still match (useful for future extensions) but produce no extra speech.
+
+To speak only the message without the time, set:
+
+```bash
+vox config settings.mapping.time=false
+```
+
+### vox service
+
+Manage autostart service instances that run on login:
+
+```bash
+vox service add "clock --lang pl --voice pl_PL-mc_speech-medium --start 9 --end 1 --freq 30 --volume 30"
+vox service list                       # list installed instances
+vox service delete <id>                # delete a specific instance
+vox service delete --all               # delete all instances
+vox service delete                     # interactive selection if multiple
+vox service start                      # start the service manually
+vox service restart                    # restart the service (e.g. after editing instances)
+vox service status                     # show service and instance status
+```
+
+The quoted argument is any valid `vox` subcommand with its flags. The `--background` flag and `vox` prefix are stripped automatically. Unknown commands are rejected at add time.
+
+On the first install, a platform-specific service is registered and started:
+
+| Platform | Mechanism |
+|----------|-----------|
+| Linux | systemd user service (`~/.config/systemd/user/horavox.service`) |
+| macOS | launchd user agent (`~/Library/LaunchAgents/com.horavox.service.plist`) |
+| Windows | Startup folder script (`%APPDATA%\...\Startup\horavox.vbs`) |
+
+Subsequent installs add instances to the registry and signal the running service to reload. When the last instance is removed, the service is automatically unregistered.
+
+### Shell completion
+
+HoraVox supports tab completion for bash, zsh, and fish via [argcomplete](https://github.com/kislyuk/argcomplete). Generate and activate the completion script for your shell:
+
+```bash
+# Bash — add to ~/.bashrc
+eval "$(vox completion --bash)"
+
+# Zsh — add to ~/.zshrc
+eval "$(vox completion --zsh)"
+
+# Fish — add to ~/.config/fish/config.fish
+vox completion --fish | source
+```
+
+Once activated, pressing Tab will complete command names, option flags, and values (e.g., `--mode classic|modern`).
 
 ### Custom commands
 
@@ -229,7 +435,24 @@ Create a JSON file in `data/lang/<code>.json` (e.g., `de.json` for German). The 
 ```
 src/horavox/
   __init__.py         Package init
-  cli.py              Main script (installed as `vox` via pip)
+  main.py             CLI dispatcher (installed as `vox` via pip)
+  core.py             Shared library — paths, logging, language, TTS, voice, sessions
+  clock.py            vox clock — speaking clock loop + daemon
+  now.py              vox now — speak once
+  at.py               vox at — scheduled announcements (one-shot / recurring)
+  stop.py             vox stop — stop daemons
+  list.py             vox list — list running daemons
+  sleep.py            vox sleep — mute running daemons
+  wakeup.py           vox wakeup — resume sleeping daemons
+  voice.py            vox voice — interactive voice browser
+  config.py           vox config — get/set defaults and aliases
+  service.py          vox service — autostart service management
+  registry.py         CRUD for service instance registry
+  completion.py       vox completion — shell completion scripts
+  platforms/
+    linux.py          systemd user service backend
+    macos.py          launchd user agent backend
+    windows.py        Windows startup folder backend
   data/
     lang/
       en.json         English time data
@@ -239,8 +462,12 @@ src/horavox/
 pyproject.toml        Package configuration
 
 ~/.horavox/           Runtime data (created automatically)
-  voices/             Downloaded Piper voice models (.onnx)
+  models/             Downloaded Piper voice models (.onnx)
   cache/              Voice catalog cache + PID file
+  sessions/           Running daemon metadata (.json)
+  config.json         Default settings, aliases, and time-based message mappings
+  data.json           Installed service instances registry
+  sleep.json          Sleep state file (created by vox sleep)
   horavox.log         Spoken words + error log
 ```
 
@@ -260,4 +487,4 @@ The logo use [Clipart from OpenClipart](https://openclipart.org/detail/351967/cl
 
 Copyright (C) 2026 [Jakub T. Jankiewicz](https://jakub.jankiewicz.org)
 
-Released under MIT license
+Released under [GNU GPL v3.0](https://www.gnu.org/licenses/gpl-3.0.html) or later
