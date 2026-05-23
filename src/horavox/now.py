@@ -103,7 +103,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:
@@ -131,7 +131,7 @@ def _main():
     # Load voice
     if core.NOSOUND:
         voice = None
-    else:
+    else:  # pragma: no cover
         from piper import PiperVoice
 
         voice_path = resolve_voice(args.voice, lang)

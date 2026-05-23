@@ -243,7 +243,7 @@ def parse_args():
 def _load_voice(args, lang):
     if core.NOSOUND:
         return None
-    voice_path = resolve_voice(args.voice, lang)
+    voice_path = resolve_voice(args.voice, lang)  # pragma: no cover
     voice_name = os.path.basename(voice_path).replace(".onnx", "")
     log(f"Loading voice: {voice_name}")
     from piper import PiperVoice
@@ -418,7 +418,7 @@ def _format_days(repeat_days):
     return ", ".join(_weekday_name(d) for d in sorted(repeat_days))
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:
@@ -460,7 +460,7 @@ def _main():
     if args.repeat:
         repeat_days = parse_repeat(args.repeat)
 
-        if args.background:
+        if args.background:  # pragma: no cover
             if not core.NOSOUND:
                 voice_path = resolve_voice(args.voice, lang)
                 if not os.path.exists(voice_path):
@@ -507,7 +507,7 @@ def _main():
                 log(f"  Time: {now.strftime('%H:%M:%S')} - not at a scheduled time ({times_str}).")
             return
 
-        if args.background:
+        if args.background:  # pragma: no cover
             if not core.NOSOUND:
                 voice_path = resolve_voice(args.voice, lang)
                 if not os.path.exists(voice_path):

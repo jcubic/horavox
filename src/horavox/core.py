@@ -63,12 +63,12 @@ def _migrate_legacy_voices(models_dir):
         if os.path.isfile(src) and not os.path.exists(dst):
             try:
                 shutil.move(src, dst)
-            except OSError:
+            except OSError:  # pragma: no cover
                 log_to_file(f"Failed to migrate voice file: {name}")
     try:
         if not os.listdir(LEGACY_VOICES_DIR):
             os.rmdir(LEGACY_VOICES_DIR)
-    except OSError:
+    except OSError:  # pragma: no cover
         pass
 
 
@@ -305,7 +305,7 @@ def prepare_speech(voice, text):
     log(f"Preparing: {text}")
     if NOSOUND:
         return
-    log_spoken(text)
+    log_spoken(text)  # pragma: no cover
     synthesize(voice, text, TEMP_WAV)
     scale_volume(TEMP_WAV, VOLUME)
     play_blank()

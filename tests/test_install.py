@@ -755,6 +755,24 @@ class TestServiceDispatch:
                     service.main()
                 mock_log.assert_called_once()
 
+    def test_dispatch_list(self, capsys):
+        from horavox import service
+
+        with mock.patch.object(sys, "argv", ["vox service", "list"]):
+            with mock.patch("horavox.service.list_instances", return_value=[]):
+                service._main()
+        assert "no installed instances" in capsys.readouterr().out.lower()
+
+    def test_dispatch_status(self, capsys):
+        from horavox import service
+
+        with mock.patch.object(sys, "argv", ["vox service", "status"]):
+            with mock.patch.object(service, "get_platform") as mock_plat:
+                mock_plat.return_value.is_registered.return_value = False
+                service._main()
+        out = capsys.readouterr().out
+        assert "not installed" in out.lower()
+
 
 # ==================== service manager (run) ====================
 

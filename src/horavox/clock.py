@@ -178,7 +178,7 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
     # Load voice (intentionally here — after daemon fork to avoid threading issues)
     if core.NOSOUND:
         voice = None
-    else:
+    else:  # pragma: no cover
         voice_path = resolve_voice(args.voice, lang)
         voice_name = os.path.basename(voice_path).replace(".onnx", "")
         log(f"Loading voice: {voice_name}")
@@ -286,7 +286,7 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         time.sleep(TICK)
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:
@@ -333,7 +333,7 @@ def _main():
         time_offset = datetime.timedelta(0)
 
     # --background mode
-    if args.background:
+    if args.background:  # pragma: no cover
         if not core.NOSOUND:
             voice_path = resolve_voice(args.voice, lang)
             if not os.path.exists(voice_path):

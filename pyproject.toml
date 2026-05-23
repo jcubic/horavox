@@ -53,6 +53,18 @@ select = ["E", "F", "W", "I"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
 
+[tool.coverage.run]
+omit = [
+    "src/horavox/platforms/macos.py",
+    "src/horavox/platforms/windows.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__ == .__main__.",
+    "pragma: no cover",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

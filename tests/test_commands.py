@@ -3381,6 +3381,38 @@ class TestAtRunOnceLoop:
         )
         core.configure(verbose=False)
 
+    def test_run_at_once_sleep_active_skips(self, capsys):
+
+        from horavox import at, core
+
+        core.configure(nosound=True, verbose=True)
+        fake_now = datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        offset = fake_now - datetime.datetime.now()
+        args = argparse.Namespace(voice=None, message=None, time=None, exit=False, exec_cmd=None)
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
+        schedule = [(12, 0)]
+        target_dates = [datetime.date.today()]
+
+        with mock.patch.object(at, "is_sleep_active", return_value=True):
+            with mock.patch("time.sleep"):
+                at.run_at_once(
+                    args,
+                    "en",
+                    lang_data,
+                    offset,
+                    schedule,
+                    target_dates,
+                )
+        out = capsys.readouterr().out
+        assert "sleeping" in out
+        core.configure(verbose=False)
+
 
 class TestAtRepeatExit:
     def test_run_at_repeat_exit_not_matching(self, capsys):
@@ -3664,6 +3696,53 @@ class TestClockLoopCoverage:
         with mock.patch("horavox.config.get_mapping", return_value=[]):
             with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
                 clock.run_clock(args, "en", lang_data, offset, 0, 23 * 60 + 59)
+        core.configure(verbose=False)
+
+    def test_clock_loop_sleep_active_skips(self, capsys):
+
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+        offset = now - datetime.datetime.now()
+
+        args = argparse.Namespace(
+            voice=None,
+            freq=60,
+            time=None,
+            exit=False,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+            exec_cmd=None,
+        )
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
+
+        call_count = [0]
+
+        def fake_sleep(secs):
+            call_count[0] += 1
+            if call_count[0] >= 3:
+                raise KeyboardInterrupt
+
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                with mock.patch.object(clock, "is_sleep_active", return_value=True):
+                    with mock.patch("time.sleep", side_effect=fake_sleep):
+                        try:
+                            clock.run_clock(args, "en", lang_data, offset, 0, 23 * 60 + 59)
+                        except KeyboardInterrupt:
+                            pass
+        out = capsys.readouterr().out
+        assert "sleeping" in out
         core.configure(verbose=False)
 
 

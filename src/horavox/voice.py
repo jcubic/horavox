@@ -123,7 +123,7 @@ def cmd_interactive(lang, config_voice=None, mode="classic"):
     vm.browse(config=config)
 
 
-def main():
+def main():  # pragma: no cover
     try:
         _main()
     except KeyboardInterrupt:

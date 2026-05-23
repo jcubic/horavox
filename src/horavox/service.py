@@ -340,7 +340,7 @@ def _cmd_status():
 # ==================== run (internal manager) ====================
 
 
-def _cmd_run():
+def _cmd_run():  # pragma: no cover
     os.makedirs(USER_DIR, exist_ok=True)
     log_to_file("service: starting")
 

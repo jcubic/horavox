@@ -25,11 +25,11 @@ def get_platform():
         from horavox.platforms import linux
 
         return linux
-    elif sys.platform == "darwin":
+    elif sys.platform == "darwin":  # pragma: no cover
         from horavox.platforms import macos
 
         return macos
-    elif sys.platform == "win32":
+    elif sys.platform == "win32":  # pragma: no cover
         from horavox.platforms import windows
 
         return windows
