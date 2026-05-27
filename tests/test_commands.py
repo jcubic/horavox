@@ -785,6 +785,69 @@ class TestClockCommand:
         mapping = [{"time": "17:00"}]
         assert _find_mapping_message(mapping, 17, 0, 0) is None
 
+    def test_service_foreground_creates_session(self, tmp_path):
+        from horavox import clock
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox clock", "--debug", "--exit", "--time", "12:00", "--lang", "en"],
+        ):
+            with mock.patch.dict(os.environ, {"HORAVOX_SERVICE": "1"}):
+                with mock.patch.object(clock, "prepare_speech"):
+                    with mock.patch.object(clock, "play_speech"):
+                        with mock.patch.object(clock, "play_beep"):
+                            with mock.patch("horavox.clock.SESSIONS_DIR", str(sessions_dir)):
+                                with mock.patch("horavox.clock.ensure_user_dirs"):
+                                    with mock.patch("horavox.clock.create_session") as mock_create:
+                                        with mock.patch(
+                                            "horavox.clock.remove_session"
+                                        ) as mock_remove:
+                                            clock.main()
+                                            mock_create.assert_called_once()
+                                            call_kwargs = mock_create.call_args
+                                            assert call_kwargs[1]["session_type"] == "clock"
+                                            mock_remove.assert_called_once()
+
+    def test_service_foreground_creates_session_with_range(self, tmp_path):
+        from horavox import clock
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "vox clock",
+                "--debug",
+                "--exit",
+                "--time",
+                "12:00",
+                "--lang",
+                "en",
+                "--start",
+                "9:00",
+                "--end",
+                "22:00",
+            ],
+        ):
+            with mock.patch.dict(os.environ, {"HORAVOX_SERVICE": "1"}):
+                with mock.patch.object(clock, "prepare_speech"):
+                    with mock.patch.object(clock, "play_speech"):
+                        with mock.patch.object(clock, "play_beep"):
+                            with mock.patch("horavox.clock.SESSIONS_DIR", str(sessions_dir)):
+                                with mock.patch("horavox.clock.ensure_user_dirs"):
+                                    with mock.patch("horavox.clock.create_session") as mock_create:
+                                        with mock.patch("horavox.clock.remove_session"):
+                                            clock.main()
+                                            call_kwargs = mock_create.call_args
+                                            assert call_kwargs[1]["start"] == "9:00"
+                                            assert call_kwargs[1]["end"] == "22:00"
+
 
 # ==================== config.py ====================
 
@@ -2205,12 +2268,13 @@ class TestAtCommand:
                 mock_daemon.assert_called_once()
                 mock_instance.start.assert_called_once()
 
-    def test_run_at_once_multiple_dates(self, capsys):
+    def test_run_at_once_multiple_dates(self, tmp_path, capsys):
 
         from horavox import at as at_mod
         from horavox.at import run_at_once
 
         core.configure(debug=True)
+        core.SLEEP_FILE = str(tmp_path / "sleep.json")
         lang_data, lang = core.load_language_data("en", "classic")
         args = mock.MagicMock()
         args.time = None
@@ -2367,6 +2431,42 @@ class TestAtCommand:
             with mock.patch("horavox.at.main") as m:
                 main()
                 m.assert_called_once()
+
+    def test_service_foreground_creates_session(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox at", "12:00", "--repeat", "everyday", "--debug"],
+        ):
+            with mock.patch.dict(os.environ, {"HORAVOX_SERVICE": "1"}):
+                with mock.patch("horavox.at.ensure_user_dirs"):
+                    with mock.patch("horavox.at.create_session") as mock_create:
+                        with mock.patch("horavox.at.remove_session") as mock_remove:
+                            with mock.patch("horavox.at.run_at_repeat"):
+                                at.main()
+                                mock_create.assert_called_once()
+                                assert mock_create.call_args[1]["session_type"] == "at"
+                                mock_remove.assert_called_once()
+
+    def test_service_foreground_oneshot_creates_session(self):
+        from horavox import at
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox at", "12:00", "--debug"],
+        ):
+            with mock.patch.dict(os.environ, {"HORAVOX_SERVICE": "1"}):
+                with mock.patch("horavox.at.ensure_user_dirs"):
+                    with mock.patch("horavox.at.create_session") as mock_create:
+                        with mock.patch("horavox.at.remove_session") as mock_remove:
+                            with mock.patch("horavox.at.run_at_once"):
+                                at.main()
+                                mock_create.assert_called_once()
+                                assert mock_create.call_args[1]["session_type"] == "at"
+                                mock_remove.assert_called_once()
 
 
 # ==================== voice.py ====================
@@ -3745,6 +3845,65 @@ class TestClockLoopCoverage:
         assert "sleeping" in out
         core.configure(verbose=False)
 
+    def test_clock_loop_early_wake_announces(self, tmp_path, capsys):
+        from horavox import clock, core
+
+        core.configure(nosound=True, verbose=True)
+        now = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+        offset = now - datetime.datetime.now()
+
+        args = argparse.Namespace(
+            voice=None,
+            freq=60,
+            time=None,
+            exit=False,
+            verbose=True,
+            nosound=True,
+            volume=0,
+            debug=True,
+            background=False,
+            exec_cmd=None,
+        )
+        lang_data = {
+            "hours": {},
+            "hours_alt": {},
+            "minutes": {},
+            "connectors": {},
+            "patterns": {"time": "{hour} {minutes}"},
+        }
+
+        start_min = (now.hour + 2) * 60
+        end_min = (now.hour + 10) * 60 % (24 * 60)
+
+        call_count = [0]
+
+        def fake_sleep(secs):
+            call_count[0] += 1
+            if call_count[0] >= 3:
+                raise KeyboardInterrupt
+
+        core.SLEEP_FILE = str(tmp_path / "sleep.json")
+        core.WAKEUP_FILE = str(tmp_path / "wakeup.json")
+        core.write_wakeup()
+
+        with mock.patch("horavox.config.get_mapping", return_value=[]):
+            with mock.patch("horavox.config.load_config", return_value={"settings": {}}):
+                with mock.patch.object(clock, "get_spoken_time", return_value="test"):
+                    with mock.patch.object(clock, "prepare_speech"):
+                        with mock.patch.object(clock, "prepare_combined_speech"):
+                            with mock.patch.object(clock, "play_beep"):
+                                with mock.patch.object(clock, "play_speech"):
+                                    with mock.patch("time.sleep", side_effect=fake_sleep):
+                                        try:
+                                            clock.run_clock(
+                                                args, "en", lang_data, offset, start_min, end_min
+                                            )
+                                        except KeyboardInterrupt:
+                                            pass
+        out = capsys.readouterr().out
+        assert "early wake" in out.lower()
+        core.configure(verbose=False)
+
 
 # ==================== sleep.py ====================
 
@@ -3967,28 +4126,124 @@ class TestParseDuration:
             parse_duration("0h0m")
 
 
-# ==================== wakeup.py ====================
+# ==================== sleep off / wakeup ====================
 
 
-class TestWakeupCommand:
-    def test_wakeup_removes_sleep(self, tmp_path, monkeypatch, capsys):
-        from horavox.wakeup import _main
+class TestSleepOff:
+    def test_sleep_off_removes_sleep(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
 
         sleep_file = tmp_path / "sleep.json"
         sleep_file.write_text('{"timestamp": 1}')
         monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
-        monkeypatch.setattr(sys, "argv", ["vox wakeup"])
-        _main()
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "off"])
+        with mock.patch("horavox.sleep._has_between_range_sessions", return_value=False):
+            _main()
         assert not sleep_file.exists()
-        assert "resumed" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "resumed" in out
+        assert "within their ranges" in out
 
-    def test_wakeup_no_sleep(self, tmp_path, monkeypatch, capsys):
-        from horavox.wakeup import _main
+    def test_sleep_off_no_active_sleep(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
 
         monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
-        monkeypatch.setattr(sys, "argv", ["vox wakeup"])
-        _main()
-        assert "No active sleep" in capsys.readouterr().out
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "off"])
+        with mock.patch("horavox.sleep._has_between_range_sessions", return_value=False):
+            _main()
+        out = capsys.readouterr().out
+        assert "No active sleep" in out
+        assert "within their ranges" in out
+
+    def test_sleep_off_between_ranges_writes_early_wake(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text('{"timestamp": 1}')
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "off"])
+        with mock.patch("horavox.sleep._has_between_range_sessions", return_value=True):
+            _main()
+        assert (tmp_path / "wakeup.json").exists()
+        out = capsys.readouterr().out
+        assert "Early wake activated" in out
+
+    def test_sleep_off_no_sleep_between_ranges(self, tmp_path, monkeypatch, capsys):
+        from horavox.sleep import _main
+
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        monkeypatch.setattr(sys, "argv", ["vox sleep", "off"])
+        with mock.patch("horavox.sleep._has_between_range_sessions", return_value=True):
+            _main()
+        out = capsys.readouterr().out
+        assert "No active sleep" in out
+        assert "Early wake activated" in out
+        assert (tmp_path / "wakeup.json").exists()
+
+    def test_has_between_range_sessions_in_range(self, tmp_path, monkeypatch):
+        from horavox.sleep import _has_between_range_sessions
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "type": "clock",
+                    "start": "0:00",
+                    "end": "23:59",
+                }
+            )
+        )
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        assert not _has_between_range_sessions()
+
+    def test_has_between_range_sessions_outside_range(self, tmp_path, monkeypatch):
+        import datetime
+
+        from horavox.sleep import _has_between_range_sessions
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        now = datetime.datetime.now()
+        start_h = (now.hour + 2) % 24
+        end_h = (now.hour + 4) % 24
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "type": "clock",
+                    "start": f"{start_h}:00",
+                    "end": f"{end_h}:00",
+                }
+            )
+        )
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        assert _has_between_range_sessions()
+
+    def test_has_between_range_sessions_no_range(self, tmp_path, monkeypatch):
+        from horavox.sleep import _has_between_range_sessions
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(json.dumps({"pid": os.getpid(), "type": "clock"}))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        assert not _has_between_range_sessions()
+
+    def test_has_between_range_sessions_skips_at(self, tmp_path, monkeypatch):
+        from horavox.sleep import _has_between_range_sessions
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        session_file = sessions_dir / "test.json"
+        session_file.write_text(json.dumps({"pid": os.getpid(), "type": "at"}))
+        monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
+        assert not _has_between_range_sessions()
 
 
 # ==================== list.py sleep marker ====================

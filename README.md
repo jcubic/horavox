@@ -26,7 +26,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Scheduled announcements** -- speak the time (or a custom message) at specific times with `vox at`
 - **Background mode** -- run as a daemon with `--background`, stop with `--stop`
 - **Time-based messages** -- attach custom messages to specific times with recurring schedules via `vox config mapping.add`
-- **Sleep / wake** -- temporarily mute all running daemons with `vox sleep`, auto-wakes when the time range restarts
+- **Sleep / wake** -- temporarily mute all running daemons with `vox sleep`, resume with `vox sleep off`; auto-wakes when the time range restarts; `sleep off` also triggers early wake for daemons between ranges
 - **Autostart service** -- add as a system service with `vox service add`, runs on login
 - **Command hooks** -- run a shell command after each announcement with `--exec` (e.g., desktop notifications)
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
@@ -73,8 +73,7 @@ vox <command> [options]
 | `vox now` | Speak the current time once |
 | `vox list` | List running background instances |
 | `vox stop` | Stop running background instances |
-| `vox sleep` | Mute all running daemons |
-| `vox wakeup` | Resume all sleeping daemons |
+| `vox sleep` | Mute all running daemons (`off` to resume) |
 | `vox voice` | Manage Piper voice models |
 | `vox at` | Speak the time or a custom message at specified times |
 | `vox config` | Get or set default configuration |
@@ -128,7 +127,7 @@ vox stop --pid 12345           # stop a specific instance
 
 When multiple instances are running, `vox stop` shows an interactive menu with arrow-key selection.
 
-### vox sleep / vox wakeup
+### vox sleep
 
 Temporarily mute all running daemons without stopping them:
 
@@ -137,16 +136,20 @@ vox sleep                      # mute everything until range restarts
 vox sleep --until 08:00        # mute until 8:00 AM
 vox sleep --for 2h             # mute for 2 hours
 vox sleep --for 1h30m          # mute for 1 hour 30 minutes
-vox wakeup                     # resume all daemons immediately
+vox sleep off                  # resume all daemons immediately
 ```
 
 When used with `vox clock` that has a `--start`/`--end` range, sleep auto-wakes when the range restarts. For example, if the clock runs 8:00--22:00 and you sleep at 15:00, it stays muted until 8:00 the next day. Cross-midnight ranges work too -- a clock running 22:00--2:00 that sleeps at 23:00 auto-wakes at 22:00 the next evening.
 
 A clock without an explicit range (`--start`/`--end`) requires `--until` or `--for` since there is no range boundary to auto-wake on.
 
-`vox at` instances respect sleep but have no range concept, so they only resume on `vox wakeup` or when `--until`/`--for` expires.
+`vox at` instances respect sleep but have no range concept, so they only resume on `vox sleep off` or when `--until`/`--for` expires.
 
 `vox list` shows a `[sleeping]` marker next to muted instances.
+
+#### Early wake
+
+`vox sleep off` also activates **early wake** for clocks that are currently between ranges. If your clock is configured for 9:00--1:00 and you run `vox sleep off` at 7:30, the clock starts speaking immediately instead of waiting until 9:00. Early wake lasts until the clock enters its normal range, at which point it automatically deactivates. This only affects clocks with an explicit `--start`/`--end` range.
 
 ### vox voice
 
@@ -442,8 +445,7 @@ src/horavox/
   at.py               vox at — scheduled announcements (one-shot / recurring)
   stop.py             vox stop — stop daemons
   list.py             vox list — list running daemons
-  sleep.py            vox sleep — mute running daemons
-  wakeup.py           vox wakeup — resume sleeping daemons
+  sleep.py            vox sleep — mute/resume running daemons (on/off)
   voice.py            vox voice — interactive voice browser
   config.py           vox config — get/set defaults and aliases
   service.py          vox service — autostart service management

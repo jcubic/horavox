@@ -45,6 +45,7 @@ USER_DIR = os.path.expanduser("~/.horavox")
 CACHE_DIR = os.path.join(USER_DIR, "cache")
 SESSIONS_DIR = os.path.join(USER_DIR, "sessions")
 SLEEP_FILE = os.path.join(USER_DIR, "sleep.json")
+WAKEUP_FILE = os.path.join(USER_DIR, "wakeup.json")
 LEGACY_VOICES_DIR = os.path.join(USER_DIR, "voices")
 
 TEMP_WAV = f"/tmp/horavox-{os.getpid()}.wav"
@@ -475,6 +476,52 @@ def clear_sleep():
         pass
 
 
+def read_wakeup():
+    """Read wakeup file. Returns dict or None."""
+    if not os.path.exists(WAKEUP_FILE):
+        return None
+    try:
+        with open(WAKEUP_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if "timestamp" not in data:
+            return None
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def write_wakeup():
+    """Write early-wake marker file."""
+    tmp = WAKEUP_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"timestamp": time.time()}, f)
+    os.rename(tmp, WAKEUP_FILE)
+
+
+def clear_wakeup():
+    """Remove wakeup file."""
+    try:
+        os.remove(WAKEUP_FILE)
+    except OSError:
+        pass
+
+
+def is_early_wake(start_minutes, end_minutes):
+    """Check if early wake is active (between ranges only)."""
+    full_day = start_minutes == 0 and end_minutes == time_to_minutes(23, 59)
+    if full_day:
+        return False
+    if read_wakeup() is None:
+        return False
+    now = datetime.datetime.now()
+    current = time_to_minutes(now.hour, now.minute)
+    if start_minutes <= end_minutes:
+        in_range = start_minutes <= current <= end_minutes
+    else:
+        in_range = current >= start_minutes or current <= end_minutes
+    return not in_range
+
+
 def _next_range_start_after(sleep_timestamp, start_minutes):
     """Find the first range start datetime after the sleep timestamp."""
     sleep_dt = datetime.datetime.fromtimestamp(sleep_timestamp)
@@ -486,12 +533,14 @@ def _next_range_start_after(sleep_timestamp, start_minutes):
     return candidate
 
 
-def is_sleep_active(start_minutes=None, end_minutes=None):
+def is_sleep_active(start_minutes=None, end_minutes=None, check_time=None):
     """Check if sleep is active for a daemon with the given range.
 
     Pass start_minutes/end_minutes for daemons with a time range (auto-wake).
     Pass None for daemons without a range (no auto-wake).
     Full-day range (0:00-23:59) is treated as no range.
+    check_time overrides now() for the auto-wake comparison (use the
+    announcement target so the warm-up window doesn't skip the first slot).
     """
     sleep_data = read_sleep()
     if sleep_data is None:
@@ -503,7 +552,8 @@ def is_sleep_active(start_minutes=None, end_minutes=None):
         full_day = start_minutes == 0 and end_minutes == time_to_minutes(23, 59)
         if not full_day:
             next_start = _next_range_start_after(sleep_data["timestamp"], start_minutes)
-            if datetime.datetime.now() >= next_start:
+            now = check_time if check_time is not None else datetime.datetime.now()
+            if now >= next_start:
                 return False
     return True
 

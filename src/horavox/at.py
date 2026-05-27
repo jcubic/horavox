@@ -490,7 +490,16 @@ def _main():
             daemon.start()
             return
 
-        run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days)
+        if os.environ.get("HORAVOX_SERVICE"):
+            ensure_user_dirs()
+            session_id = str(uuid.uuid4())
+            create_session(os.getpid(), session_id, session_type="at")
+            try:
+                run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days)
+            finally:
+                remove_session(session_id)
+        else:
+            run_at_repeat(args, lang, lang_data, time_offset, schedule, repeat_days)
     else:
         target_dates = parse_date_values(args.date) if args.date else [datetime.date.today()]
 
@@ -537,7 +546,16 @@ def _main():
             daemon.start()
             return
 
-        run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
+        if os.environ.get("HORAVOX_SERVICE"):
+            ensure_user_dirs()
+            session_id = str(uuid.uuid4())
+            create_session(os.getpid(), session_id, session_type="at")
+            try:
+                run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
+            finally:
+                remove_session(session_id)
+        else:
+            run_at_once(args, lang, lang_data, time_offset, schedule, target_dates)
 
 
 if __name__ == "__main__":

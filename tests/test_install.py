@@ -814,6 +814,31 @@ class TestServiceManager:
                 _reconcile("/usr/bin/vox", children)
         assert children["aaa"] is proc
 
+    def test_reconcile_clears_crash_count(self):
+        from horavox.service import _reconcile
+
+        children = {}
+        crash_failures = {"aaa": 6}
+        instances = [{"id": "aaa", "command": "clock --lang pl"}]
+        with mock.patch("horavox.service.list_instances", return_value=instances):
+            with mock.patch("horavox.service._start_child") as mock_start:
+                _reconcile("/usr/bin/vox", children, crash_failures)
+        mock_start.assert_called_once_with("/usr/bin/vox", children, "aaa", "clock --lang pl")
+        assert "aaa" not in crash_failures
+
+    def test_reconcile_clears_crash_on_remove(self):
+        from horavox.service import _reconcile
+
+        proc = mock.MagicMock()
+        proc.poll.return_value = None
+        children = {"aaa": proc}
+        crash_failures = {"aaa": 3}
+        with mock.patch("horavox.service.list_instances", return_value=[]):
+            with mock.patch("horavox.service.log_to_file"):
+                _reconcile("/usr/bin/vox", children, crash_failures)
+        assert "aaa" not in children
+        assert "aaa" not in crash_failures
+
     def test_stop_child_terminate(self):
         from horavox.service import _stop_child
 

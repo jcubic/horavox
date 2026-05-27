@@ -29,11 +29,13 @@ from horavox.core import (
     PKG_DIR,
     SESSIONS_DIR,
     beep_count_for_minute,
+    clear_wakeup,
     configure,
     create_session,
     detect_language,
     ensure_user_dirs,
     get_spoken_time,
+    is_early_wake,
     is_in_range,
     is_sleep_active,
     load_language_data,
@@ -265,10 +267,16 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
 
         if in_window and target != last_announced:
             last_announced = target
-            if is_in_range(target_hour, target_minute, start_minutes, end_minutes):
-                if is_sleep_active(start_minutes, end_minutes):
+            in_range = is_in_range(target_hour, target_minute, start_minutes, end_minutes)
+            early_wake = not in_range and is_early_wake(start_minutes, end_minutes)
+            if in_range:
+                clear_wakeup()
+            if in_range or early_wake:
+                if is_sleep_active(start_minutes, end_minutes, check_time=target):
                     log(f"  {target_hour}:{target_minute:02d} sleeping, skipping.")
                     continue
+                if early_wake:
+                    log(f"  {target_hour}:{target_minute:02d} early wake, announcing.")
                 spoken, msg = speak_with_mapping(
                     voice, lang_data, target_hour, target_minute, target.weekday()
                 )
@@ -373,7 +381,23 @@ def _main():
         return
 
     # Foreground mode
-    run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes)
+    if os.environ.get("HORAVOX_SERVICE"):
+        ensure_user_dirs()
+        session_id = str(uuid.uuid4())
+        has_range = not (start_minutes == 0 and end_minutes == 23 * 60 + 59)
+        create_session(
+            os.getpid(),
+            session_id,
+            session_type="clock",
+            start=f"{start_h}:{start_m:02d}" if has_range else None,
+            end=f"{end_h}:{end_m:02d}" if has_range else None,
+        )
+        try:
+            run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes)
+        finally:
+            remove_session(session_id)
+    else:
+        run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes)
 
 
 if __name__ == "__main__":

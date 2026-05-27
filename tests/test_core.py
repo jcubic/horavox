@@ -882,6 +882,26 @@ class TestIsSleepActive:
         core.write_sleep()
         assert core.is_sleep_active(start_minutes=1320, end_minutes=120) is True
 
+    def test_check_time_wakes_at_range_start(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        sleep_at = datetime.datetime(2026, 5, 27, 0, 31, 0)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": sleep_at.timestamp()}))
+        target_9am = datetime.datetime(2026, 5, 27, 9, 0, 0)
+        assert (
+            core.is_sleep_active(start_minutes=540, end_minutes=60, check_time=target_9am) is False
+        )
+
+    def test_check_time_still_sleeping_before_range(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        sleep_at = datetime.datetime(2026, 5, 27, 0, 31, 0)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": sleep_at.timestamp()}))
+        before_range = datetime.datetime(2026, 5, 27, 8, 59, 57)
+        assert (
+            core.is_sleep_active(start_minutes=540, end_minutes=60, check_time=before_range) is True
+        )
+
 
 class TestNextRangeStartAfter:
     def test_sleep_before_range_start(self):
@@ -901,6 +921,60 @@ class TestNextRangeStartAfter:
         ts = now.timestamp()
         result = core._next_range_start_after(ts, 480)
         assert result == datetime.datetime(2026, 5, 23, 8, 0, 0)
+
+
+class TestEarlyWake:
+    def test_write_and_read(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        core.write_wakeup()
+        assert (tmp_path / "wakeup.json").exists()
+        data = core.read_wakeup()
+        assert "timestamp" in data
+
+    def test_read_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        assert core.read_wakeup() is None
+
+    def test_clear(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        core.write_wakeup()
+        assert (tmp_path / "wakeup.json").exists()
+        core.clear_wakeup()
+        assert not (tmp_path / "wakeup.json").exists()
+
+    def test_clear_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        core.clear_wakeup()
+
+    def test_is_early_wake_between_ranges(self, tmp_path, monkeypatch):
+        """Before range start (7:00, range 9:00-1:00), early wake should be active."""
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        core.write_wakeup()
+        fake_now = datetime.datetime(2026, 5, 26, 7, 0, 0)
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_early_wake(start_minutes=540, end_minutes=60) is True
+
+    def test_is_early_wake_in_range_returns_false(self, tmp_path, monkeypatch):
+        """Inside the range (10:00, range 9:00-1:00), early wake should be inactive."""
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        core.write_wakeup()
+        fake_now = datetime.datetime(2026, 5, 26, 10, 0, 0)
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_early_wake(start_minutes=540, end_minutes=60) is False
+
+    def test_is_early_wake_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        assert core.is_early_wake(start_minutes=540, end_minutes=60) is False
+
+    def test_is_early_wake_no_range(self, tmp_path, monkeypatch):
+        """Full-day range — early wake not applicable."""
+        monkeypatch.setattr(core, "WAKEUP_FILE", str(tmp_path / "wakeup.json"))
+        core.write_wakeup()
+        assert core.is_early_wake(start_minutes=0, end_minutes=23 * 60 + 59) is False
 
 
 class TestCreateSessionExtended:

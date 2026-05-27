@@ -350,7 +350,7 @@ def _cmd_run():  # pragma: no cover
     running = True
 
     def reload_config(signum=None, frame=None):
-        _reconcile(vox, children)
+        _reconcile(vox, children, crash_failures)
 
     def shutdown(signum=None, frame=None):
         nonlocal running
@@ -364,18 +364,18 @@ def _cmd_run():  # pragma: no cover
     else:
         signal.signal(signal.SIGTERM, shutdown)
 
-    _reconcile(vox, children)
+    _reconcile(vox, children, crash_failures)
 
     while running:
         time.sleep(2)
         _check_children(vox, children, crash_failures)
-        _reconcile(vox, children)
+        _reconcile(vox, children, crash_failures)
 
     _stop_all(children)
     log_to_file("service: stopped")
 
 
-def _reconcile(vox, children):
+def _reconcile(vox, children, crash_failures=None):
     instances = list_instances()
     wanted_ids = {inst["id"] for inst in instances}
     command_map = {inst["id"]: inst["command"] for inst in instances}
@@ -384,9 +384,13 @@ def _reconcile(vox, children):
         if iid not in wanted_ids:
             log_to_file(f"service: stopping removed instance {iid}")
             _stop_child(children, iid)
+            if crash_failures is not None:
+                crash_failures.pop(iid, None)
 
     for iid in wanted_ids:
         if iid not in children:
+            if crash_failures is not None:
+                crash_failures.pop(iid, None)
             cmd = command_map[iid]
             _start_child(vox, children, iid, cmd)
 
