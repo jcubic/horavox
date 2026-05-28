@@ -16,6 +16,7 @@ src/horavox/
   list.py         vox list — list running daemons
   stop.py         vox stop — stop daemons (interactive if multiple)
   sleep.py        vox sleep — mute/resume daemons (on/off, auto-wake on range restart)
+  wakeup.py       vox wakeup — thin wrapper, same as 'vox sleep off'
   voice.py        vox voice — interactive voice browser (i/u keys, arrow nav)
   service.py      vox service — install/remove/list/start/run autostart instances
   registry.py     CRUD for ~/.horavox/data.json instance registry
@@ -54,6 +55,7 @@ tests/
 | `vox list` | List running daemon PIDs (`--verbose` shows command line) |
 | `vox stop` | Stop daemon(s) — direct if one, interactive (inquirer) if multiple, `--pid N` for specific |
 | `vox sleep` | Mute all daemons (`off` to resume) — auto-wakes on range restart, or use `--until`/`--for` |
+| `vox wakeup` | Same as `vox sleep off` |
 | `vox at` | Speak time at specified times, one-shot or recurring (`--repeat`) |
 | `vox voice` | Interactive voice browser (arrow keys, `i`=install, `u`=uninstall, `q`=quit) |
 | `vox service add` | Add a command as an autostart service instance |

@@ -30,6 +30,7 @@ COMMANDS = {
     "stop": ("horavox.stop", "Stop running background instances"),
     "list": ("horavox.list", "List running background instances"),
     "sleep": ("horavox.sleep", "Mute or resume running daemons (on/off)"),
+    "wakeup": ("horavox.wakeup", "Resume all sleeping daemons (same as 'sleep off')"),
     "voice": ("horavox.voice", "Manage Piper voice models"),
     "at": ("horavox.at", "Speak the time at specified times"),
     "config": ("horavox.config", "Get or set default configuration"),

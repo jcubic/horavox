@@ -3422,22 +3422,18 @@ class TestAtRunOnce:
 
 
 class TestAtRunOnceLoop:
-    def test_run_at_once_announces_and_exits(self):
+    def test_run_at_once_announces_and_exits(self, tmp_path):
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
-        now = datetime.datetime.now().replace(second=0, microsecond=0)
+        core.SLEEP_FILE = str(tmp_path / "sleep.json")
+        fake_now = datetime.datetime.now().replace(hour=14, minute=0, second=0, microsecond=0)
+        offset = fake_now - datetime.datetime.now()
         args = argparse.Namespace(voice=None, message=None, time=None, exit=False, exec_cmd=None)
-        lang_data = {
-            "hours": {},
-            "hours_alt": {},
-            "minutes": {},
-            "connectors": {},
-            "patterns": {"time": "{hour} {minutes}"},
-        }
-        schedule = [(now.hour, now.minute)]
-        target_dates = [now.date()]
+        lang_data, lang = core.load_language_data("en", "classic")
+        schedule = [(14, 0)]
+        target_dates = [datetime.date.today()]
 
         with mock.patch.object(at, "prepare_speech"):
             with mock.patch.object(at, "play_beep"):
@@ -3445,40 +3441,36 @@ class TestAtRunOnceLoop:
                     with mock.patch("time.sleep"):
                         at.run_at_once(
                             args,
-                            "en",
+                            lang,
                             lang_data,
-                            datetime.timedelta(0),
+                            offset,
                             schedule,
                             target_dates,
                         )
         core.configure(verbose=False)
 
-    def test_run_at_once_skips_past_target(self):
+    def test_run_at_once_skips_past_target(self, capsys):
 
         from horavox import at, core
 
         core.configure(nosound=True, verbose=True)
-        now = datetime.datetime.now()
-        past = now - datetime.timedelta(minutes=10)
+        fake_now = datetime.datetime.now().replace(hour=15, minute=0, second=0, microsecond=0)
+        offset = fake_now - datetime.datetime.now()
         args = argparse.Namespace(voice=None, message=None, time=None, exit=False, exec_cmd=None)
-        lang_data = {
-            "hours": {},
-            "hours_alt": {},
-            "minutes": {},
-            "connectors": {},
-            "patterns": {"time": "{hour} {minutes}"},
-        }
-        schedule = [(past.hour, past.minute)]
-        target_dates = [now.date()]
+        lang_data, lang = core.load_language_data("en", "classic")
+        schedule = [(14, 50)]
+        target_dates = [datetime.date.today()]
 
         at.run_at_once(
             args,
-            "en",
+            lang,
             lang_data,
-            datetime.timedelta(0),
+            offset,
             schedule,
             target_dates,
         )
+        out = capsys.readouterr().out
+        assert "passed" in out.lower()
         core.configure(verbose=False)
 
     def test_run_at_once_sleep_active_skips(self, capsys):
@@ -4244,6 +4236,24 @@ class TestSleepOff:
         session_file.write_text(json.dumps({"pid": os.getpid(), "type": "at"}))
         monkeypatch.setattr(core, "SESSIONS_DIR", str(sessions_dir))
         assert not _has_between_range_sessions()
+
+
+# ==================== wakeup.py ====================
+
+
+class TestWakeupCommand:
+    def test_wakeup_calls_sleep_off(self, tmp_path, monkeypatch, capsys):
+        from horavox.wakeup import _main
+
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text('{"timestamp": 1}')
+        monkeypatch.setattr(core, "SLEEP_FILE", str(sleep_file))
+        monkeypatch.setattr(sys, "argv", ["vox wakeup"])
+        with mock.patch("horavox.sleep._has_between_range_sessions", return_value=False):
+            _main()
+        assert not sleep_file.exists()
+        out = capsys.readouterr().out
+        assert "resumed" in out
 
 
 # ==================== list.py sleep marker ====================
