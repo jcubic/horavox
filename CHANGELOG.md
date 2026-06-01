@@ -1,3 +1,7 @@
+## 0.3.1
+### Bugfix
+* fix sleep/wakeup mechanism
+
 ## 0.3.0
 ### Feature
 * add `vox list` sub-command
