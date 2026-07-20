@@ -1,3 +1,8 @@
+## 0.3.2
+### Bugfix
+* clear expired sleep file
+* fix tests to not require `pip install .`
+
 ## 0.3.1
 ### Bugfix
 * fix sleep/wakeup mechanism

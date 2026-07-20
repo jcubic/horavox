@@ -865,6 +865,25 @@ class TestIsSleepActive:
         core.write_sleep()
         assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is True
 
+    def test_auto_wake_clears_stale_sleep_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        yesterday_3pm = datetime.datetime(2026, 5, 21, 15, 0, 0)
+        fake_now = datetime.datetime(2026, 5, 22, 10, 0, 0)
+        sleep_file = tmp_path / "sleep.json"
+        sleep_file.write_text(json.dumps({"timestamp": yesterday_3pm.timestamp()}))
+        with unittest.mock.patch("horavox.core.datetime") as mock_dt:
+            mock_dt.datetime.now.return_value = fake_now
+            mock_dt.datetime.fromtimestamp = datetime.datetime.fromtimestamp
+            mock_dt.timedelta = datetime.timedelta
+            assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is False
+        assert not sleep_file.exists()
+
+    def test_still_sleeping_keeps_sleep_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
+        core.write_sleep()
+        assert core.is_sleep_active(start_minutes=480, end_minutes=1320) is True
+        assert (tmp_path / "sleep.json").exists()
+
     def test_auto_wake_cross_midnight(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "SLEEP_FILE", str(tmp_path / "sleep.json"))
         two_days_ago_11pm = datetime.datetime(2026, 5, 20, 23, 0, 0)

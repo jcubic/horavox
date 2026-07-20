@@ -554,6 +554,9 @@ def is_sleep_active(start_minutes=None, end_minutes=None, check_time=None):
             next_start = _next_range_start_after(sleep_data["timestamp"], start_minutes)
             now = check_time if check_time is not None else datetime.datetime.now()
             if now >= next_start:
+                # Range restarted: the indefinite sleep is over for this daemon.
+                # Remove the stale file so it doesn't linger past its purpose.
+                clear_sleep()
                 return False
     return True
 
