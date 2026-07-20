@@ -44,6 +44,12 @@ vox-voice = "horavox.voice:main"
 vox-sleep = "horavox.sleep:main"
 vox-wakeup = "horavox.wakeup:main"
 
+[tool.pytest.ini_options]
+# Import horavox from the working tree (src/), not any installed copy in
+# site-packages — otherwise `make test` silently tests stale installed code.
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 
