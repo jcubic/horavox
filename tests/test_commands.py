@@ -4526,3 +4526,179 @@ class TestTimerCommand:
         assert mock_speak.call_args.kwargs["beep_count"] == timer.END_BEEPS
         mock_exec.assert_called_once()
         assert mock_exec.call_args[0][0] == "echo hi"
+
+    # ---- reminder mode ----
+
+    def test_target_datetime_duration(self):
+        from horavox import timer
+
+        now = datetime.datetime(2026, 7, 21, 10, 0, 0)
+        assert timer._target_datetime("30m", now) == now + datetime.timedelta(minutes=30)
+
+    def test_target_datetime_absolute_future(self):
+        from horavox import timer
+
+        now = datetime.datetime(2026, 7, 21, 10, 0, 0)
+        assert timer._target_datetime("10:30", now) == datetime.datetime(2026, 7, 21, 10, 30, 0)
+
+    def test_target_datetime_absolute_rolls_to_tomorrow(self):
+        from horavox import timer
+
+        now = datetime.datetime(2026, 7, 21, 11, 0, 0)
+        assert timer._target_datetime("10:30", now) == datetime.datetime(2026, 7, 22, 10, 30, 0)
+
+    def test_parse_reminders_sorted_and_deduped(self):
+        from horavox import timer
+
+        assert timer._parse_reminders("1h,30m,1h,1h30m") == [1800, 3600, 5400]
+
+    def test_parse_reminders_empty(self):
+        from horavox import timer
+
+        assert timer._parse_reminders(None) == []
+
+    def test_final_text_message_wins(self):
+        from horavox import timer
+
+        args = argparse.Namespace(message="Czas wyjść", name="pociąg")
+        assert timer._final_text(args, "pl", core.load_durations("pl")) == "Czas wyjść"
+
+    def test_final_text_now_with_name(self):
+        from horavox import timer
+
+        args = argparse.Namespace(message=None, name="pociąg")
+        assert timer._final_text(args, "pl", core.load_durations("pl")) == "teraz pociąg"
+        args_en = argparse.Namespace(message=None, name="the train")
+        assert timer._final_text(args_en, "en", core.load_durations("en")) == "now the train"
+
+    def test_final_text_generic_without_name(self):
+        from horavox import timer
+
+        args = argparse.Namespace(message=None, name=None)
+        assert timer._final_text(args, "pl", core.load_durations("pl")) == "czas minął"
+
+    def test_reminder_text_english(self):
+        from horavox import timer
+
+        args = argparse.Namespace(name="the train")
+        d = core.load_durations("en")
+        assert timer._reminder_text(args, "en", d, 3600) == "in one hour the train"
+        assert timer._reminder_text(args, "en", d, 1800) == "in thirty minutes the train"
+        assert (
+            timer._reminder_text(args, "en", d, 5400) == "in one hour and thirty minutes the train"
+        )
+
+    def test_reminder_text_polish(self):
+        from horavox import timer
+
+        args = argparse.Namespace(name="pociąg")
+        d = core.load_durations("pl")
+        assert timer._reminder_text(args, "pl", d, 3600) == "za godzinę pociąg"
+        assert timer._reminder_text(args, "pl", d, 1800) == "za trzydzieści minut pociąg"
+        assert timer._reminder_text(args, "pl", d, 5400) == "za godzinę i trzydzieści minut pociąg"
+
+    def test_reminder_text_no_name_trimmed(self):
+        from horavox import timer
+
+        args = argparse.Namespace(name=None)
+        assert (
+            timer._reminder_text(args, "en", core.load_durations("en"), 1800) == "in thirty minutes"
+        )
+
+    def test_build_events_sorts_and_appends_final(self):
+        from horavox import timer
+
+        args = argparse.Namespace(name="the train")
+        d = core.load_durations("en")
+        now = datetime.datetime(2026, 7, 21, 3, 0, 0)
+        target = datetime.datetime(2026, 7, 21, 5, 0, 0)
+        events = timer._build_events(
+            args, "en", d, now, target, [1800, 3600, 5400], "now the train"
+        )
+        times = [e[0] for e in events]
+        assert times == sorted(times)
+        # 1h30m before (3:30), 1h before (4:00), 30m before (4:30), then target (5:00)
+        assert [t.strftime("%H:%M") for t in times] == ["03:30", "04:00", "04:30", "05:00"]
+        assert events[0][1] == "in one hour and thirty minutes the train"
+        assert events[-1][1] == "now the train"
+
+    def test_build_events_skips_past_reminders(self):
+        from horavox import timer
+
+        args = argparse.Namespace(name=None)
+        d = core.load_durations("en")
+        now = datetime.datetime(2026, 7, 21, 4, 45, 0)
+        target = datetime.datetime(2026, 7, 21, 5, 0, 0)
+        # 1h before (4:00) is in the past relative to now (4:45) -> skipped
+        events = timer._build_events(args, "en", d, now, target, [3600, 600], "time is up")
+        assert [t.strftime("%H:%M") for t, _ in events] == ["04:50", "05:00"]
+
+    def test_run_reminders_fires_all_events(self):
+        from horavox import timer
+
+        now = datetime.datetime.now()
+        events = [(now, "za godzinę pociąg"), (now, "teraz pociąg")]
+        args = argparse.Namespace(voice=None, exec_cmd=None, message=None)
+        with mock.patch.object(core, "NOSOUND", True):
+            with mock.patch.object(timer, "prepare_speech") as mock_prep:
+                with mock.patch.object(timer, "play_beep"):
+                    with mock.patch.object(timer, "play_speech") as mock_play:
+                        with mock.patch.object(timer.time, "sleep"):
+                            timer.run_reminders(args, "pl", events)
+        assert mock_prep.call_count == 2
+        assert mock_play.call_count == 2
+
+    def test_run_reminders_skips_past_event(self):
+        from horavox import timer
+
+        past = datetime.datetime.now() - datetime.timedelta(seconds=30)
+        now = datetime.datetime.now()
+        events = [(past, "old"), (now, "teraz pociąg")]
+        args = argparse.Namespace(voice=None, exec_cmd=None, message=None)
+        with mock.patch.object(core, "NOSOUND", True):
+            with mock.patch.object(timer, "prepare_speech") as mock_prep:
+                with mock.patch.object(timer, "play_beep"):
+                    with mock.patch.object(timer, "play_speech"):
+                        with mock.patch.object(timer.time, "sleep"):
+                            timer.run_reminders(args, "pl", events)
+        assert mock_prep.call_count == 1
+
+    def test_run_reminders_waits_then_fires(self):
+        from horavox import timer
+
+        fire = datetime.datetime(2026, 7, 21, 5, 0, 0)
+        args = argparse.Namespace(voice=None, exec_cmd=None, message=None)
+        # now() sequence: far before target (tick wait), at target (fire),
+        # then a moment before target inside the fire branch (remaining > 0 sleep)
+        nows = [
+            fire - datetime.timedelta(seconds=10),
+            fire,
+            fire - datetime.timedelta(seconds=1),
+        ]
+        with mock.patch.object(core, "NOSOUND", True):
+            with mock.patch.object(timer, "prepare_speech"):
+                with mock.patch.object(timer, "play_beep"):
+                    with mock.patch.object(timer, "play_speech"):
+                        with mock.patch.object(timer.time, "sleep") as mock_sleep:
+                            with mock.patch.object(timer.datetime, "datetime") as mock_dt:
+                                mock_dt.now.side_effect = nows
+                                timer.run_reminders(args, "pl", [(fire, "teraz pociąg")])
+        # one tick wait + one remaining-time sleep
+        assert mock_sleep.call_count == 2
+
+    def test_main_dispatches_to_run_reminders(self):
+        from horavox import timer
+
+        # Duration target (now+3h) so both reminders are always in the future,
+        # regardless of wall-clock time when the test runs.
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["vox timer", "3h", "--reminders", "30m,1h", "--name", "the train", "--debug"],
+        ):
+            with mock.patch.object(timer, "run_reminders") as mock_run:
+                timer.main()
+                mock_run.assert_called_once()
+                events = mock_run.call_args[0][2]
+                # two reminders + final target
+                assert len(events) == 3

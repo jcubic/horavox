@@ -24,7 +24,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Configurable interval** -- announce every N minutes with `--freq` (e.g., every 30 min)
 - **Volume control** -- set volume 0--100% with `--volume`
 - **Scheduled announcements** -- speak the time (or a custom message) at specific times with `vox at`
-- **Countdown timer** -- count down for a duration, then beep and speak with `vox timer` (e.g., `vox timer 5m --message 'noodles ready'`)
+- **Countdown timer** -- count down to a time or duration with `vox timer`, with optional named reminders (`vox timer 5:00 --reminders 30m,1h --name 'the train'` → "in one hour the train")
 - **Background mode** -- run as a daemon with `--background`, stop with `--stop`
 - **Time-based messages** -- attach custom messages to specific times with recurring schedules via `vox config mapping.add`
 - **Sleep / wake** -- temporarily mute all running daemons with `vox sleep`, resume with `vox sleep off`; auto-wakes when the time range restarts; `sleep off` also triggers early wake for daemons between ranges
@@ -78,7 +78,7 @@ vox <command> [options]
 | `vox wakeup` | Resume all sleeping daemons (same as `sleep off`) |
 | `vox voice` | Manage Piper voice models |
 | `vox at` | Speak the time or a custom message at specified times |
-| `vox timer` | Count down for a duration, then beep and speak |
+| `vox timer` | Count down to a time or duration, with optional named reminders |
 | `vox config` | Get or set default configuration |
 | `vox service` | Manage autostart service (add/delete/list/start/restart/status) |
 | `vox completion` | Generate shell completion scripts |
@@ -217,7 +217,7 @@ vox service add "at 9:00 --repeat weekdays -m 'Stand-up meeting'"
 
 ### vox timer
 
-Count down for a duration, then play a double beep and speak. Handy for cooking, naps, or short reminders:
+Count down to a time (or for a duration), then play a double beep and speak. Handy for cooking, naps, catching a train, or short reminders:
 
 ```bash
 vox timer 5m                              # beep + "time is up" after 5 minutes
@@ -225,18 +225,32 @@ vox timer 5m --message 'noodles ready'    # instant-noodle timer
 vox timer 30m --message 'wake up'         # 30-minute nap
 vox timer 90s                             # 90 seconds
 vox timer 1h30m                           # compound duration
-vox timer '25 minutes' --lang pl          # full unit names, Polish phrase ("czas minął")
+vox timer 10:30                           # count down to the next 10:30 (clock time)
 
-# Run in the background (managed by vox list / vox stop)
+# Reminders before a target, with an event name
+vox timer 5:00 --reminders 30m,1h,1h30m --name 'the train'
+vox timer 5:00 --reminders 30m,1h,1h30m --name 'pociąg' --lang pl
+
+# Background (managed by vox list / vox stop) and command hooks
 vox timer 30m --message 'wake up' --background
-
-# Run a command when the timer ends
 vox timer 10m --message 'tea ready' --exec 'notify-send "HoraVox" "$MESSAGE"'
 ```
 
-The duration accepts compact forms (`5s`, `5m`, `3h`, `1h30m`), full unit names (`5 minutes`, `2 hours`, `30 sec`), and a bare number (seconds). When the timer ends it plays a double beep (same as the clock on the hour) and speaks. Without `--message` it speaks a generic phrase in the selected language; with `--message` / `-m` it speaks your text.
+**Target** — the positional argument is either a **duration** (`5m`, `1h30m`, `90s`, or a bare number of seconds) or a **clock time** with a colon (`10:30`), which counts down to its next occurrence (tomorrow if it already passed today).
 
-With `--background` the timer detaches and runs as a daemon; it shows up in `vox list` and can be cancelled with `vox stop` before it fires. Use `--exec CMD` to run a shell command when it ends (see [--exec](#--exec-run-a-command-after-announcements) for the available variables — `$TIME`/`$DATE` reflect the moment the timer fires).
+**Reminders** — `--reminders` takes a comma-separated list of offsets *before* the target. Each fires at `target − offset` and speaks the remaining time, followed by `--name`:
+
+| offset (target 5:00) | English | Polish (`--lang pl`) |
+|---|---|---|
+| `1h30m` (at 3:30) | in one hour and thirty minutes the train | za godzinę i trzydzieści minut pociąg |
+| `1h` (at 4:00) | in one hour the train | za godzinę pociąg |
+| `30m` (at 4:30) | in thirty minutes the train | za trzydzieści minut pociąg |
+
+At the target itself it says **"now the train" / "teraz pociąg"** (or your `--message`, which overrides the target announcement entirely). Word order and phrasing come from the language's `durations` block in `data/lang/*.json`, so other languages can put the name before the time. Every announcement plays a double beep and runs `--exec` (if given).
+
+Without `--reminders` it behaves like a plain countdown: at the target it speaks `--message`, or `--name` ("now …"), or a generic phrase (`"time is up"` / `"czas minął"`).
+
+With `--background` the timer detaches and runs as a daemon; it shows up in `vox list` and can be cancelled with `vox stop` before it fires. See [--exec](#--exec-run-a-command-after-announcements) for the available variables (`$TIME`/`$DATE` reflect each announcement).
 
 Supports the same `--lang`, `--voice`, `--volume`, `--nosound`, `--verbose`, and `--debug` flags as `vox now`. Unlike `vox clock` / `vox at`, a timer is a deliberate one-off, so it is **not** silenced by `vox sleep` — it always fires.
 

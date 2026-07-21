@@ -17,7 +17,7 @@ src/horavox/
   stop.py         vox stop — stop daemons (interactive if multiple)
   sleep.py        vox sleep — mute/resume daemons (on/off, auto-wake on range restart)
   wakeup.py       vox wakeup — thin wrapper, same as 'vox sleep off'
-  timer.py        vox timer — countdown timer, then beep + speak (--message, --background, --exec)
+  timer.py        vox timer — count down to time/duration; reminders (--reminders/--name), --background, --exec
   voice.py        vox voice — interactive voice browser (i/u keys, arrow nav)
   service.py      vox service — install/remove/list/start/run autostart instances
   registry.py     CRUD for ~/.horavox/data.json instance registry
@@ -58,7 +58,7 @@ tests/
 | `vox sleep` | Mute all daemons (`off` to resume) — auto-wakes on range restart, or use `--until`/`--for` |
 | `vox wakeup` | Same as `vox sleep off` |
 | `vox at` | Speak time at specified times, one-shot or recurring (`--repeat`) |
-| `vox timer` | Count down for a duration, then double-beep and speak (generic phrase or `--message`) |
+| `vox timer` | Count down to a clock time (`10:30`) or duration (`30m`); optional `--reminders 30m,1h,1h30m --name X` announce remaining time ("in one hour X" / "za godzinę X"); at target says "now X"/"teraz X" or `--message` |
 | `vox voice` | Interactive voice browser (arrow keys, `i`=install, `u`=uninstall, `q`=quit) |
 | `vox service add` | Add a command as an autostart service instance |
 | `vox service delete` | Delete installed service instances (`--all` for all) |
@@ -87,6 +87,7 @@ Every 1 second, recompute next slot from wall clock. Fire when within `[-5s, +3.
 
 - **`NOSOUND`/`VOLUME`/`VERBOSE`** are module-level globals in `core.py`. Subcommands set them via `core.configure(...)`. **Always reference as `core.NOSOUND` etc.**, never `from horavox.core import NOSOUND` — that copies the value at import time and breaks `--debug`/`--nosound`.
 - **Polish 12-hour next-hour overrides**: at 23:30 we say "wpół do dwunastej" not "wpół do północy". Implemented via optional `next_hour_midnight` / `next_hour_midnight_alt` fields in language JSON.
+- **Spoken durations** (`vox timer` reminders) are separate from clock times: top-level `durations` block in each `lang/*.json` (read via `core.load_durations`, not `load_language_data` which drops top-level keys). `core.spoken_duration()` decomposes h/m/s and renders each part via `core.plural_category(lang, n)` — Polish uses one/few/many (few = n%10 in 2-4 excluding teens), English uses one/other. Number words come from `durations.numbers` (Polish forms are **feminine**, e.g. "dwie"; noun forms are tuned for the accusative "za …" template, e.g. "godzinę"). Count `1` uses the unit's `"one"` phrase directly (Polish drops the number: just "godzinę"). Reminder wording/word-order lives entirely in the `template`/`now`/`join` strings, so other languages can reorder `{name}`/`{duration}`.
 - **Voice catalog URLs**: overridable via `HORAVOX_VOICES_JSON_URL` and `HORAVOX_VOICES_BASE_URL` env vars (for CI/mirrors).
 - **TEMP_WAV** is per-process (`/tmp/horavox-<pid>.wav`) — safe for concurrent instances.
 

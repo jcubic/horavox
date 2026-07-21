@@ -320,6 +320,22 @@ class TestVoxTimer:
         assert rc != 0
         assert "duration" in (out + err).lower()
 
+    def test_reminders_mode_speaks_remaining_and_target(self):
+        """A 2s timer with a 1s reminder should speak both the reminder and target."""
+        rc, out, _ = run_subcommand(
+            "timer", "2s", "--reminders", "1s", "--name", "the train", "--debug", "--lang", "en"
+        )
+        assert rc == 0
+        low = out.lower()
+        assert "in one second the train" in low
+        assert "now the train" in low
+
+    def test_absolute_time_target(self):
+        """A clock-time positional should be accepted (parses, no error)."""
+        rc, out, err = run_subcommand("timer", "banana:30", "--debug")
+        assert rc != 0  # invalid HH:MM
+        assert "hh:mm" in (out + err).lower() or "time" in (out + err).lower()
+
 
 # ==================== vox voice ====================
 

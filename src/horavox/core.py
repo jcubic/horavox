@@ -207,17 +207,26 @@ def load_language_data(lang, mode="classic"):
     return data, lang
 
 
-def load_messages(lang):
-    """Load the top-level 'messages' dict for a language (English fallback)."""
+def _load_lang_json(lang):
+    """Load a whole language JSON file (English fallback, {} on error)."""
     lang_file = os.path.join(LANG_DIR, f"{lang}.json")
     if not os.path.exists(lang_file):
         lang_file = os.path.join(LANG_DIR, "en.json")
     try:
         with open(lang_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            return json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
-    return data.get("messages", {})
+
+
+def load_messages(lang):
+    """Load the top-level 'messages' dict for a language (English fallback)."""
+    return _load_lang_json(lang).get("messages", {})
+
+
+def load_durations(lang):
+    """Load the top-level 'durations' dict for a language (English fallback)."""
+    return _load_lang_json(lang).get("durations", {})
 
 
 def get_message(lang, key, default=""):
@@ -226,6 +235,45 @@ def get_message(lang, key, default=""):
     if value is None and lang != "en":
         value = load_messages("en").get(key)
     return value if value is not None else default
+
+
+def plural_category(lang, n):
+    """Return the plural category used for spoken durations (CLDR-style).
+
+    'one' is handled by callers; this returns 'few'/'many' for Polish
+    (2-4 excluding teens is 'few', otherwise 'many') and 'other' elsewhere.
+    """
+    if lang == "pl":
+        if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+            return "few"
+        return "many"
+    return "other"
+
+
+def _unit_phrase(durations, lang, unit, n):
+    """Render a single '{number} {noun}' duration part with correct plural form."""
+    forms = durations[unit]
+    if n == 1:
+        return forms["one"]
+    noun = forms.get(plural_category(lang, n)) or forms.get("other") or forms.get("many", "")
+    number = durations.get("numbers", {}).get(str(n), str(n))
+    return f"{number} {noun}"
+
+
+def spoken_duration(durations, lang, total_seconds):
+    """Render a duration (seconds) as a spoken phrase using a durations dict.
+
+    Decomposes into hours/minutes/seconds, drops zero parts, and joins the
+    remaining parts with the language's 'join' connector.
+    """
+    hours, rem = divmod(int(total_seconds), 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = [
+        _unit_phrase(durations, lang, unit, n)
+        for unit, n in (("hour", hours), ("minute", minutes), ("second", seconds))
+        if n
+    ]
+    return durations.get("join", " ").join(parts)
 
 
 def get_spoken_time(lang_data, hour, minute):

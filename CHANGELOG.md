@@ -1,3 +1,7 @@
+## 0.5.0
+### Feature
+* extend `vox timer` command
+
 ## 0.4.0
 ### Feature
 * `vox timer`

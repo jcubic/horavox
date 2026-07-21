@@ -1146,3 +1146,86 @@ class TestGetMessage:
         monkeypatch.setattr(core, "LANG_DIR", str(tmp_path))
         # No files at all → falls back to en.json path, which also doesn't exist
         assert core.load_messages("xx") == {}
+
+
+class TestPluralCategory:
+    def test_english_is_other_for_non_one(self):
+        assert core.plural_category("en", 2) == "other"
+        assert core.plural_category("en", 5) == "other"
+        assert core.plural_category("en", 21) == "other"
+
+    def test_polish_few(self):
+        for n in (2, 3, 4, 22, 23, 24, 32, 43, 54):
+            assert core.plural_category("pl", n) == "few", n
+
+    def test_polish_many(self):
+        for n in (5, 6, 10, 11, 12, 13, 14, 15, 20, 21, 25, 30):
+            assert core.plural_category("pl", n) == "many", n
+
+    def test_polish_teens_are_many(self):
+        for n in (12, 13, 14):
+            assert core.plural_category("pl", n) == "many", n
+
+    def test_unknown_lang_defaults_to_english(self):
+        assert core.plural_category("de", 2) == "other"
+
+
+class TestSpokenDuration:
+    @pytest.fixture
+    def en(self):
+        return core.load_durations("en")
+
+    @pytest.fixture
+    def pl(self):
+        return core.load_durations("pl")
+
+    def test_en_minutes_many(self, en):
+        assert core.spoken_duration(en, "en", 30 * 60) == "thirty minutes"
+
+    def test_en_one_minute(self, en):
+        assert core.spoken_duration(en, "en", 60) == "one minute"
+
+    def test_en_one_hour(self, en):
+        assert core.spoken_duration(en, "en", 3600) == "one hour"
+
+    def test_en_hour_and_minutes(self, en):
+        assert core.spoken_duration(en, "en", 3600 + 30 * 60) == "one hour and thirty minutes"
+
+    def test_en_two_hours(self, en):
+        assert core.spoken_duration(en, "en", 2 * 3600) == "two hours"
+
+    def test_en_seconds(self, en):
+        assert core.spoken_duration(en, "en", 45) == "forty five seconds"
+
+    def test_pl_minutes_many(self, pl):
+        assert core.spoken_duration(pl, "pl", 30 * 60) == "trzydzieści minut"
+
+    def test_pl_one_hour_accusative(self, pl):
+        assert core.spoken_duration(pl, "pl", 3600) == "godzinę"
+
+    def test_pl_hour_and_minutes(self, pl):
+        assert core.spoken_duration(pl, "pl", 3600 + 30 * 60) == "godzinę i trzydzieści minut"
+
+    def test_pl_two_minutes_few(self, pl):
+        assert core.spoken_duration(pl, "pl", 2 * 60) == "dwie minuty"
+
+    def test_pl_five_minutes_many(self, pl):
+        assert core.spoken_duration(pl, "pl", 5 * 60) == "pięć minut"
+
+    def test_pl_two_hours_few(self, pl):
+        assert core.spoken_duration(pl, "pl", 2 * 3600) == "dwie godziny"
+
+    def test_pl_twenty_two_minutes_few(self, pl):
+        assert core.spoken_duration(pl, "pl", 22 * 60) == "dwadzieścia dwie minuty"
+
+
+class TestLoadDurations:
+    def test_english_has_template(self):
+        assert core.load_durations("en")["template"] == "in {duration} {name}"
+
+    def test_polish_has_template(self):
+        assert core.load_durations("pl")["template"] == "za {duration} {name}"
+
+    def test_unknown_lang_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "LANG_DIR", str(tmp_path))
+        assert core.load_durations("xx") == {}
