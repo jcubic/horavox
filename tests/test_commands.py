@@ -4492,3 +4492,37 @@ class TestTimerCommand:
                                 mock_create.assert_called_once()
                                 assert mock_create.call_args[1]["session_type"] == "timer"
                                 mock_remove.assert_called_once()
+
+    def test_load_voice_nosound_returns_none(self):
+        from horavox import timer
+
+        args = argparse.Namespace(voice=None)
+        with mock.patch.object(core, "NOSOUND", True):
+            assert timer._load_voice(args, "en") is None
+
+    def test_load_voice_loads_piper(self):
+        from horavox import timer
+
+        args = argparse.Namespace(voice="en_US-lessac-medium")
+        mock_piper = mock.MagicMock()
+        with mock.patch.object(core, "NOSOUND", False):
+            with mock.patch.object(timer, "resolve_voice", return_value="/tmp/x.onnx"):
+                with mock.patch.dict("sys.modules", {"piper": mock_piper}):
+                    voice = timer._load_voice(args, "en")
+        mock_piper.PiperVoice.load.assert_called_once_with("/tmp/x.onnx")
+        assert voice is mock_piper.PiperVoice.load.return_value
+
+    def test_run_timer_speaks_and_runs_exec(self):
+        from horavox import timer
+
+        args = argparse.Namespace(voice=None, exec_cmd="echo hi", message="done")
+        with mock.patch.object(core, "NOSOUND", True):
+            with mock.patch.object(timer.time, "sleep") as mock_sleep:
+                with mock.patch.object(timer, "speak") as mock_speak:
+                    with mock.patch.object(timer, "run_exec") as mock_exec:
+                        timer.run_timer(args, "en", "done", 42)
+        mock_sleep.assert_called_once_with(42)
+        mock_speak.assert_called_once()
+        assert mock_speak.call_args.kwargs["beep_count"] == timer.END_BEEPS
+        mock_exec.assert_called_once()
+        assert mock_exec.call_args[0][0] == "echo hi"

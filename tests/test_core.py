@@ -1132,3 +1132,17 @@ class TestGetMessage:
 
     def test_unknown_key_returns_default(self):
         assert core.get_message("en", "nope", "fallback") == "fallback"
+
+    def test_missing_key_non_english_falls_back_then_default(self):
+        # 'pl' exists but lacks this key → English fallback → still missing → default
+        assert core.get_message("pl", "no_such_key", "fallback") == "fallback"
+
+    def test_corrupt_messages_file_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "LANG_DIR", str(tmp_path))
+        (tmp_path / "en.json").write_text("{ not valid json")
+        assert core.load_messages("en") == {}
+
+    def test_missing_messages_file_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(core, "LANG_DIR", str(tmp_path))
+        # No files at all → falls back to en.json path, which also doesn't exist
+        assert core.load_messages("xx") == {}
