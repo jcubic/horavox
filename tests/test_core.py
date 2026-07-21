@@ -1066,3 +1066,69 @@ class TestRunExec:
         with unittest.mock.patch("horavox.core.subprocess.Popen") as mock_popen:
             core.run_exec("notify-send test", "text", datetime.datetime.now())
         assert mock_popen.call_args.kwargs["shell"] is True
+
+
+class TestParseDuration:
+    def test_bare_number_is_seconds(self):
+        assert core.parse_duration("90") == 90
+
+    def test_seconds(self):
+        assert core.parse_duration("5s") == 5
+
+    def test_minutes(self):
+        assert core.parse_duration("5m") == 300
+
+    def test_hours(self):
+        assert core.parse_duration("3h") == 3 * 3600
+
+    def test_compound(self):
+        assert core.parse_duration("1h30m") == 5400
+
+    def test_compound_with_spaces(self):
+        assert core.parse_duration("1h 30m 15s") == 3600 + 1800 + 15
+
+    def test_full_name_minutes(self):
+        assert core.parse_duration("5 minutes") == 300
+
+    def test_full_name_hours(self):
+        assert core.parse_duration("2 hours") == 7200
+
+    def test_full_name_seconds(self):
+        assert core.parse_duration("30 sec") == 30
+
+    def test_case_insensitive(self):
+        assert core.parse_duration("2H") == 7200
+
+    def test_invalid_unit_raises(self):
+        with pytest.raises(ValueError):
+            core.parse_duration("5x")
+
+    def test_garbage_raises(self):
+        with pytest.raises(ValueError):
+            core.parse_duration("abc")
+
+    def test_zero_raises(self):
+        with pytest.raises(ValueError):
+            core.parse_duration("0")
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError):
+            core.parse_duration("")
+
+    def test_trailing_bare_number_raises(self):
+        with pytest.raises(ValueError):
+            core.parse_duration("5m3")
+
+
+class TestGetMessage:
+    def test_english_timer_done(self):
+        assert core.get_message("en", "timer_done") == "time is up"
+
+    def test_polish_timer_done(self):
+        assert core.get_message("pl", "timer_done") == "czas minął"
+
+    def test_unknown_lang_falls_back_to_english(self):
+        assert core.get_message("zz", "timer_done") == "time is up"
+
+    def test_unknown_key_returns_default(self):
+        assert core.get_message("en", "nope", "fallback") == "fallback"

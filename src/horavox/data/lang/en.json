@@ -1,4 +1,7 @@
 {
+  "messages": {
+    "timer_done": "time is up"
+  },
   "classic": {
     "hours": [
       "midnight",

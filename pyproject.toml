@@ -43,6 +43,7 @@ vox-list = "horavox.list:main"
 vox-voice = "horavox.voice:main"
 vox-sleep = "horavox.sleep:main"
 vox-wakeup = "horavox.wakeup:main"
+vox-timer = "horavox.timer:main"
 
 [tool.pytest.ini_options]
 # Import horavox from the working tree (src/), not any installed copy in

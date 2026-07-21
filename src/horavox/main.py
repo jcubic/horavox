@@ -33,6 +33,7 @@ COMMANDS = {
     "wakeup": ("horavox.wakeup", "Resume all sleeping daemons (same as 'sleep off')"),
     "voice": ("horavox.voice", "Manage Piper voice models"),
     "at": ("horavox.at", "Speak the time at specified times"),
+    "timer": ("horavox.timer", "Count down for a duration, then beep and speak"),
     "config": ("horavox.config", "Get or set default configuration"),
     "service": ("horavox.service", "Manage autostart service instances"),
     "completion": ("horavox.completion", "Generate shell completion scripts"),

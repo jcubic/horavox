@@ -1,4 +1,6 @@
-## 0.3.2
+## 0.4.0
+### Feature
+* `vox timer`
 ### Bugfix
 * clear expired sleep file
 * fix tests to not require `pip install .`

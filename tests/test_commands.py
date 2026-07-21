@@ -4361,3 +4361,134 @@ class TestExecFlag:
         env = mock_popen.call_args.kwargs["env"]
         assert env["TEXT"] == "Time for lunch"
         assert env["MESSAGE"] == "Time for lunch"
+
+
+# ==================== timer.py ====================
+
+
+class TestTimerCommand:
+    def test_generic_message_and_double_beep(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m", "--debug", "--lang", "en"]):
+            with mock.patch.object(timer.time, "sleep") as mock_sleep:
+                with mock.patch.object(timer, "speak") as mock_speak:
+                    timer.main()
+                    mock_sleep.assert_called_once_with(300)
+                    mock_speak.assert_called_once()
+                    text = mock_speak.call_args[0][1]
+                    assert text == "time is up"
+                    assert mock_speak.call_args.kwargs["beep_count"] == 2
+
+    def test_custom_message(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m", "--debug", "-m", "noodles ready"]):
+            with mock.patch.object(timer.time, "sleep"):
+                with mock.patch.object(timer, "speak") as mock_speak:
+                    timer.main()
+                    assert mock_speak.call_args[0][1] == "noodles ready"
+
+    def test_polish_generic_message(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "10s", "--debug", "--lang", "pl"]):
+            with mock.patch.object(timer.time, "sleep") as mock_sleep:
+                with mock.patch.object(timer, "speak") as mock_speak:
+                    timer.main()
+                    mock_sleep.assert_called_once_with(10)
+                    assert mock_speak.call_args[0][1] == "czas minął"
+
+    def test_full_name_duration(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "2 minutes", "--debug", "--lang", "en"]):
+            with mock.patch.object(timer.time, "sleep") as mock_sleep:
+                with mock.patch.object(timer, "speak"):
+                    timer.main()
+                    mock_sleep.assert_called_once_with(120)
+
+    def test_invalid_duration_exits(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "banana", "--debug"]):
+            with pytest.raises(SystemExit):
+                timer.main()
+
+    def test_dispatches_from_main(self):
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "timer", "5m", "--debug", "--lang", "en"]):
+            with mock.patch("horavox.timer.time.sleep"):
+                with mock.patch("horavox.timer.speak") as mock_speak:
+                    with mock.patch("horavox.update.check_for_update"):
+                        main()
+                        mock_speak.assert_called_once()
+
+    def test_keyboard_interrupt(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m", "--debug"]):
+            with mock.patch.object(timer.time, "sleep", side_effect=KeyboardInterrupt):
+                timer.main()  # should not raise
+
+    def test_exception_logs_error(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m", "--debug"]):
+            with mock.patch.object(timer.time, "sleep", side_effect=RuntimeError("boom")):
+                with mock.patch.object(timer, "log_error") as mock_log:
+                    with pytest.raises(RuntimeError):
+                        timer.main()
+                    mock_log.assert_called_once()
+
+    def test_parse_args_defaults(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m"]):
+            args = timer.parse_args()
+            assert args.duration == "5m"
+            assert args.message is None
+            assert args.background is False
+            assert args.exec_cmd is None
+
+    def test_exec_runs_when_timer_ends(self):
+        from horavox import timer
+
+        with mock.patch.object(
+            sys, "argv", ["vox timer", "5m", "--debug", "-m", "done", "--exec", "echo hi"]
+        ):
+            with mock.patch.object(timer.time, "sleep"):
+                with mock.patch.object(timer, "speak"):
+                    with mock.patch.object(timer, "run_exec") as mock_exec:
+                        timer.main()
+                        mock_exec.assert_called_once()
+                        # run_exec(command, text, target, message)
+                        assert mock_exec.call_args[0][0] == "echo hi"
+                        assert mock_exec.call_args[0][1] == "done"
+                        assert mock_exec.call_args[0][3] == "done"
+
+    def test_background_mode(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m", "--background", "--nosound"]):
+            with mock.patch.object(timer, "Daemonize") as mock_daemon:
+                mock_instance = mock.MagicMock()
+                mock_daemon.return_value = mock_instance
+                timer.main()
+                mock_daemon.assert_called_once()
+                mock_instance.start.assert_called_once()
+
+    def test_service_foreground_creates_session(self):
+        from horavox import timer
+
+        with mock.patch.object(sys, "argv", ["vox timer", "5m", "--debug"]):
+            with mock.patch.dict(os.environ, {"HORAVOX_SERVICE": "1"}):
+                with mock.patch("horavox.timer.ensure_user_dirs"):
+                    with mock.patch("horavox.timer.create_session") as mock_create:
+                        with mock.patch("horavox.timer.remove_session") as mock_remove:
+                            with mock.patch("horavox.timer.run_timer"):
+                                timer.main()
+                                mock_create.assert_called_once()
+                                assert mock_create.call_args[1]["session_type"] == "timer"
+                                mock_remove.assert_called_once()

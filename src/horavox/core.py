@@ -20,6 +20,7 @@ import datetime
 import json
 import locale
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -204,6 +205,27 @@ def load_language_data(lang, mode="classic"):
             sys.exit(1)
 
     return data, lang
+
+
+def load_messages(lang):
+    """Load the top-level 'messages' dict for a language (English fallback)."""
+    lang_file = os.path.join(LANG_DIR, f"{lang}.json")
+    if not os.path.exists(lang_file):
+        lang_file = os.path.join(LANG_DIR, "en.json")
+    try:
+        with open(lang_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data.get("messages", {})
+
+
+def get_message(lang, key, default=""):
+    """Return a localized message string, falling back to English then default."""
+    value = load_messages(lang).get(key)
+    if value is None and lang != "en":
+        value = load_messages("en").get(key)
+    return value if value is not None else default
 
 
 def get_spoken_time(lang_data, hour, minute):
@@ -590,6 +612,53 @@ def parse_time_arg(value):
     except ValueError:
         print(f"Error: --time must be HH:MM (e.g., 16:00), got '{value}'")
         sys.exit(1)
+
+
+_DURATION_UNITS = {
+    "s": 1,
+    "sec": 1,
+    "secs": 1,
+    "second": 1,
+    "seconds": 1,
+    "m": 60,
+    "min": 60,
+    "mins": 60,
+    "minute": 60,
+    "minutes": 60,
+    "h": 3600,
+    "hr": 3600,
+    "hrs": 3600,
+    "hour": 3600,
+    "hours": 3600,
+}
+
+
+def parse_duration(text):
+    """Parse a human duration into total seconds.
+
+    Accepts compact forms (``5s``, ``5m``, ``3h``, ``1h30m``), full unit
+    names (``5 minutes``, ``2 hours``, ``30 sec``), and a bare number
+    (interpreted as seconds). Raises ValueError on anything unrecognized
+    or non-positive.
+    """
+    s = text.strip().lower()
+    if not s:
+        raise ValueError(f"invalid duration '{text}'")
+    if s.isdigit():
+        total = int(s)
+    else:
+        tokens = re.findall(r"(\d+)\s*([a-z]+)", s)
+        rebuilt = "".join(num + unit for num, unit in tokens)
+        if not tokens or rebuilt != re.sub(r"\s+", "", s):
+            raise ValueError(f"invalid duration '{text}'")
+        total = 0
+        for num, unit in tokens:
+            if unit not in _DURATION_UNITS:
+                raise ValueError(f"invalid duration '{text}': unknown unit '{unit}'")
+            total += int(num) * _DURATION_UNITS[unit]
+    if total <= 0:
+        raise ValueError(f"invalid duration '{text}': must be greater than zero")
+    return total
 
 
 def time_to_minutes(hour, minute):

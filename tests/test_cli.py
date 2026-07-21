@@ -11,7 +11,14 @@ import tempfile
 
 # Shared temp home for test isolation
 _TEST_HOME = tempfile.mkdtemp(prefix="horavox-test-")
-_TEST_ENV = {**os.environ, "HOME": _TEST_HOME}
+# Run subprocesses against the working tree (src/), not any installed copy,
+# so E2E tests don't require `pip install`. Mirrors pythonpath in pyproject.
+_SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+_TEST_ENV = {
+    **os.environ,
+    "HOME": _TEST_HOME,
+    "PYTHONPATH": _SRC_DIR + os.pathsep + os.environ.get("PYTHONPATH", ""),
+}
 
 
 def run_vox(*args, input_text=None):
@@ -285,6 +292,33 @@ class TestVoxStop:
         # Should be gone
         rc, out, _ = run_subcommand("list")
         assert out.strip() == ""
+
+
+# ==================== vox timer ====================
+
+
+class TestVoxTimer:
+    def test_help(self):
+        rc, out, _ = run_subcommand("timer", "--help")
+        assert rc == 0
+        assert "vox timer" in out
+        assert "--message" in out
+
+    def test_generic_end(self):
+        """A short timer should double-beep prep and speak the generic phrase."""
+        rc, out, _ = run_subcommand("timer", "1s", "--debug", "--lang", "en")
+        assert rc == 0
+        assert "time is up" in out.lower()
+
+    def test_custom_message(self):
+        rc, out, _ = run_subcommand("timer", "1s", "--debug", "--message", "noodles ready")
+        assert rc == 0
+        assert "noodles ready" in out.lower()
+
+    def test_invalid_duration(self):
+        rc, out, err = run_subcommand("timer", "banana", "--debug")
+        assert rc != 0
+        assert "duration" in (out + err).lower()
 
 
 # ==================== vox voice ====================

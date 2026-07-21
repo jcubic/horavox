@@ -1,4 +1,7 @@
 {
+  "messages": {
+    "timer_done": "czas minął"
+  },
   "classic": {
     "hours": [
       "północ",
