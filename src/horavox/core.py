@@ -16,6 +16,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """HoraVox shared library — paths, logging, language, TTS, voice, session management."""
 
+import contextlib
 import datetime
 import json
 import locale
@@ -341,6 +342,51 @@ def resolve_voice(voice_name, lang):
         print(f"Run: vox voice --lang {lang} (then press 'i' to install)")
         print(f"Or list available voices: vox voice --list --lang {lang}")
         sys.exit(1)
+
+
+@contextlib.contextmanager
+def _suppressed_native_stderr():
+    """Redirect the process stderr file descriptor (2) to /dev/null.
+
+    Native libraries (e.g. onnxruntime) write directly to file descriptor 2,
+    bypassing Python's ``sys.stderr`` and its log-severity settings, so we
+    redirect the fd itself. Best-effort: if fd 2 can't be duplicated, do
+    nothing.
+    """
+    stderr_fd = 2
+    try:
+        saved_fd = os.dup(stderr_fd)
+    except OSError:
+        yield
+        return
+    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+    try:
+        sys.stderr.flush()
+        os.dup2(devnull_fd, stderr_fd)
+        yield
+    finally:
+        sys.stderr.flush()
+        os.dup2(saved_fd, stderr_fd)
+        os.close(saved_fd)
+        os.close(devnull_fd)
+
+
+def load_piper_voice(voice_path):
+    """Load a Piper voice model.
+
+    Onnxruntime writes device-discovery warnings (harmless noise about virtual
+    DRM devices, e.g. from evdi/DisplayLink) straight to the stderr file
+    descriptor when it builds the inference session. Silence them unless
+    --verbose by redirecting the fd during the load.
+    """
+    if VERBOSE:
+        from piper import PiperVoice
+
+        return PiperVoice.load(voice_path)
+    with _suppressed_native_stderr():
+        from piper import PiperVoice
+
+        return PiperVoice.load(voice_path)
 
 
 # ==================== TTS ====================

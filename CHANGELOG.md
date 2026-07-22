@@ -1,6 +1,8 @@
 ## 0.5.0
 ### Feature
 * extend `vox timer` command
+### Bugfix
+* hide `onnxruntime` warnings
 
 ## 0.4.0
 ### Feature

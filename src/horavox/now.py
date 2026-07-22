@@ -26,6 +26,7 @@ from horavox.core import (
     detect_language,
     get_spoken_time,
     load_language_data,
+    load_piper_voice,
     log_error,
     parse_time_arg,
     resolve_voice,
@@ -132,10 +133,8 @@ def _main():
     if core.NOSOUND:
         voice = None
     else:  # pragma: no cover
-        from piper import PiperVoice
-
         voice_path = resolve_voice(args.voice, lang)
-        voice = PiperVoice.load(voice_path)
+        voice = load_piper_voice(voice_path)
 
     if args.time:
         h, m = parse_time_arg(args.time)

@@ -39,6 +39,7 @@ from horavox.core import (
     is_in_range,
     is_sleep_active,
     load_language_data,
+    load_piper_voice,
     log,
     log_error,
     parse_time_arg,
@@ -184,9 +185,7 @@ def run_clock(args, lang, lang_data, time_offset, start_minutes, end_minutes):
         voice_path = resolve_voice(args.voice, lang)
         voice_name = os.path.basename(voice_path).replace(".onnx", "")
         log(f"Loading voice: {voice_name}")
-        from piper import PiperVoice
-
-        voice = PiperVoice.load(voice_path)
+        voice = load_piper_voice(voice_path)
 
     freq = args.freq
     sh, sm = start_minutes // 60, start_minutes % 60

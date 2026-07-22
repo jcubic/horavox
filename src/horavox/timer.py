@@ -42,6 +42,7 @@ from horavox.core import (
     ensure_user_dirs,
     get_message,
     load_durations,
+    load_piper_voice,
     log,
     log_error,
     parse_duration,
@@ -211,9 +212,7 @@ def _load_voice(args, lang):
     voice_path = resolve_voice(args.voice, lang)  # pragma: no cover
     voice_name = os.path.basename(voice_path).replace(".onnx", "")
     log(f"Loading voice: {voice_name}")
-    from piper import PiperVoice
-
-    return PiperVoice.load(voice_path)
+    return load_piper_voice(voice_path)
 
 
 def run_timer(args, lang, text, seconds):

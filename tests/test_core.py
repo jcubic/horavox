@@ -1229,3 +1229,64 @@ class TestLoadDurations:
     def test_unknown_lang_returns_empty(self, tmp_path, monkeypatch):
         monkeypatch.setattr(core, "LANG_DIR", str(tmp_path))
         assert core.load_durations("xx") == {}
+
+
+class TestLoadPiperVoice:
+    def teardown_method(self):
+        core.VERBOSE = False
+
+    @staticmethod
+    def _load_capturing_fd2(tmp_path):
+        """Load a mocked voice whose load() writes to fd 2; capture fd 2 to a file.
+
+        Returns the text written to the real stderr fd during the call, so the
+        redirect done inside load_piper_voice can be verified directly.
+        """
+        log = tmp_path / "err.txt"
+        mock_piper = unittest.mock.MagicMock()
+
+        def fake_load(path):
+            os.write(2, b"NATIVE_NOISE")
+            return f"voice:{path}"
+
+        mock_piper.PiperVoice.load.side_effect = fake_load
+
+        saved = os.dup(2)
+        fd = os.open(str(log), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        os.dup2(fd, 2)
+        os.close(fd)
+        try:
+            with unittest.mock.patch.dict("sys.modules", {"piper": mock_piper}):
+                result = core.load_piper_voice("/tmp/x.onnx")
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+        return result, log.read_text()
+
+    def test_suppresses_native_stderr_when_not_verbose(self, tmp_path):
+        core.VERBOSE = False
+        result, captured = self._load_capturing_fd2(tmp_path)
+        assert "NATIVE_NOISE" not in captured
+        assert result == "voice:/tmp/x.onnx"
+
+    def test_shows_native_stderr_when_verbose(self, tmp_path):
+        core.VERBOSE = True
+        _result, captured = self._load_capturing_fd2(tmp_path)
+        assert "NATIVE_NOISE" in captured
+
+    def test_returns_loaded_voice(self):
+        core.VERBOSE = False
+        mock_piper = unittest.mock.MagicMock()
+        with unittest.mock.patch.dict("sys.modules", {"piper": mock_piper}):
+            result = core.load_piper_voice("/tmp/x.onnx")
+        assert result is mock_piper.PiperVoice.load.return_value
+        mock_piper.PiperVoice.load.assert_called_once_with("/tmp/x.onnx")
+
+    def test_fd_dup_failure_is_tolerated(self):
+        core.VERBOSE = False
+        mock_piper = unittest.mock.MagicMock()
+        # If fd 2 can't be duplicated, the redirect is skipped but load still runs
+        with unittest.mock.patch("horavox.core.os.dup", side_effect=OSError):
+            with unittest.mock.patch.dict("sys.modules", {"piper": mock_piper}):
+                core.load_piper_voice("/tmp/x.onnx")
+        mock_piper.PiperVoice.load.assert_called_once_with("/tmp/x.onnx")

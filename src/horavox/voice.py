@@ -28,6 +28,7 @@ from horavox.core import (
     get_spoken_time,
     get_voice_manager,
     load_language_data,
+    load_piper_voice,
     log_error,
     speak,
 )
@@ -99,13 +100,11 @@ def cmd_list(lang, config_voice=None):
 
 def _speak_with_voice(voice_key, lang, mode="classic"):
     """Load a voice by key and speak the current time."""
-    from piper import PiperVoice
-
     vm = get_voice_manager()
     onnx_path = vm.get_path(voice_key)
     if not onnx_path:
         return
-    voice = PiperVoice.load(str(onnx_path))
+    voice = load_piper_voice(str(onnx_path))
     lang_data, _ = load_language_data(lang, mode)
     now = datetime.datetime.now()
     text = get_spoken_time(lang_data, now.hour, now.minute)

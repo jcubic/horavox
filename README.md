@@ -32,7 +32,7 @@ A multi-language speaking clock that announces the time using [Piper](https://gi
 - **Command hooks** -- run a shell command after each announcement with `--exec` (e.g., desktop notifications)
 - **Hour beeps** -- 2 beeps on the full hour, 1 beep on the half hour
 - **Simulated time** -- debug with `--time HH:MM` to set a fake starting time
-- **Silent by default** -- no terminal output unless `--verbose` is passed
+- **Silent by default** -- no terminal output unless `--verbose` is passed; onnxruntime's device-discovery warnings are hidden too (shown only with `--verbose`)
 
 ## Requirements
 
