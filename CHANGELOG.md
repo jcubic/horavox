@@ -1,3 +1,7 @@
+## 0.5.1
+### Bugfix
+* fix aliases to work like in git
+
 ## 0.5.0
 ### Feature
 * extend `vox timer` command

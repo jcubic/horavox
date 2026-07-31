@@ -95,12 +95,26 @@ def main():
         print(f"vox {__version__}")
         return
     cmd = sys.argv[1]
-    if cmd in COMMANDS:
-        from horavox.config import get_aliases
+    extra = sys.argv[2:]
+    from horavox.config import get_aliases
 
-        aliases = get_aliases()
+    aliases = get_aliases()
+
+    # Git-style alias defining a NEW command: a non-builtin name whose value's
+    # first token is the target command (e.g. alias.nap = "timer 30m -m X").
+    # Builtins are never shadowed — an alias whose name is a builtin injects
+    # default args into it instead (handled below).
+    if cmd not in COMMANDS and cmd in aliases:
+        expansion = shlex.split(aliases[cmd])
+        if not expansion:
+            print(f"Error: alias '{cmd}' is empty.")
+            sys.exit(1)
+        cmd = expansion[0]
+        extra = expansion[1:] + extra
+
+    if cmd in COMMANDS:
         alias_args = shlex.split(aliases.get(cmd, "")) if cmd in aliases else []
-        merged = alias_args + sys.argv[2:]
+        merged = alias_args + extra
         if os.environ.get("HORAVOX_SERVICE"):
             merged = [a for a in merged if a != "--background"]
         sys.argv = [f"vox {cmd}"] + merged
@@ -110,7 +124,7 @@ def main():
     # Try external vox-<cmd> executable (git-style)
     ext = shutil.which(f"vox-{cmd}")
     if ext:
-        os.execvp(ext, [f"vox-{cmd}"] + sys.argv[2:])
+        os.execvp(ext, [f"vox-{cmd}"] + extra)
         return  # execvp never returns, but safety for tests
     print(f"Unknown command: {cmd}\n")
     print_help()

@@ -298,7 +298,9 @@ Settings are stored in `~/.horavox/config.json` and apply to `vox clock`, `vox n
 
 #### Aliases
 
-Aliases work like git aliases -- define default arguments for any subcommand:
+Aliases work like git aliases. There are two kinds, distinguished by the alias name:
+
+**1. Default arguments for a built-in** -- when the alias name *is* a command, its value is extra arguments injected into that command:
 
 ```bash
 vox config alias.clock '--start 9 --end 1 --background --freq 30 --volume 30'
@@ -310,6 +312,16 @@ Now `vox clock` expands to `vox clock --start 9 --end 1 --background --freq 30 -
 ```bash
 vox clock --volume 50    # overrides --volume 30 from the alias
 ```
+
+**2. New commands** -- when the alias name is *not* a built-in, it defines a whole new command whose value starts with the target command:
+
+```bash
+vox config alias.nap "timer 30m --message 'wake up'"
+vox nap                  # runs: vox timer 30m --message 'wake up'
+vox nap --volume 50      # extra args are appended: ...--message 'wake up' --volume 50
+```
+
+Built-in commands are never shadowed (an alias named `clock` always injects args into the clock command, it can't replace it). New-command aliases can also target external `vox-<name>` plugins. Expansion is one level deep (an alias can't call another alias).
 
 Manage aliases the same way as settings:
 

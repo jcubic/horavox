@@ -1483,6 +1483,72 @@ class TestAliasDispatch:
         assert "--start" in captured_argv
         assert "--freq" in captured_argv
 
+    def test_new_command_alias_expands_to_builtin(self):
+        # git-style: 'nap' is not a builtin; its value's first token is the command
+        self._write_config({"settings": {}, "alias": {"nap": "timer 30m --message 'wstawaj'"}})
+        captured_argv = []
+
+        def fake_main():
+            captured_argv.extend(sys.argv)
+
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "nap"]):
+            with mock.patch("horavox.timer.main", side_effect=fake_main):
+                with mock.patch("horavox.update.check_for_update"):
+                    main()
+        assert captured_argv == ["vox timer", "30m", "--message", "wstawaj"]
+
+    def test_new_command_alias_appends_user_args(self):
+        self._write_config({"settings": {}, "alias": {"nap": "timer 30m -m 'wstawaj'"}})
+        captured_argv = []
+
+        def fake_main():
+            captured_argv.extend(sys.argv)
+
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "nap", "--volume", "50"]):
+            with mock.patch("horavox.timer.main", side_effect=fake_main):
+                with mock.patch("horavox.update.check_for_update"):
+                    main()
+        assert captured_argv == ["vox timer", "30m", "-m", "wstawaj", "--volume", "50"]
+
+    def test_alias_named_like_builtin_injects_not_expands(self):
+        # An alias whose name IS a builtin injects default args (never expands)
+        self._write_config({"settings": {}, "alias": {"now": "--lang en"}})
+        captured_argv = []
+
+        def fake_main():
+            captured_argv.extend(sys.argv)
+
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "now"]):
+            with mock.patch("horavox.now.main", side_effect=fake_main):
+                with mock.patch("horavox.update.check_for_update"):
+                    main()
+        assert captured_argv == ["vox now", "--lang", "en"]
+
+    def test_empty_alias_errors(self):
+        self._write_config({"settings": {}, "alias": {"nap": ""}})
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "nap"]):
+            with mock.patch("horavox.update.check_for_update"):
+                with pytest.raises(SystemExit):
+                    main()
+
+    def test_unknown_non_alias_still_errors(self):
+        self._write_config({"settings": {}, "alias": {"nap": "timer 30m"}})
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "bogus"]):
+            with mock.patch("horavox.main.shutil.which", return_value=None):
+                with mock.patch("horavox.update.check_for_update"):
+                    with pytest.raises(SystemExit):
+                        main()
+
     def test_service_strips_background_from_explicit_args(self):
         self._write_config({"settings": {}, "alias": {}})
         captured_argv = []

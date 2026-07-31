@@ -70,6 +70,8 @@ tests/
 
 `vox-<name>` executables in `$PATH` work as `vox <name>` (git-style plugins).
 
+**Alias dispatch** (`main.py`): two kinds, keyed by whether the alias name is a builtin. Name == builtin → value is default args injected into that command (`alias.clock = "--freq 30"`). Name != builtin → git-style *new command*, value's first token is the target command (`alias.nap = "timer 30m -m X"` → `vox nap` runs `vox timer 30m -m X`; user args appended). Builtins are never shadowed; expansion is single-level; new-command aliases can also resolve to `vox-<name>` externals.
+
 ## Time modes
 
 - **classic** (default) — idiomatic ("quarter past five", "wpół do szóstej"). 12-hour names in Polish.
