@@ -350,6 +350,18 @@ vox nap --volume 50      # extra args are appended: ...--message 'wake up' --vol
 
 Built-in commands are never shadowed (an alias named `clock` always injects args into the clock command, it can't replace it). New-command aliases can also target external `vox-<name>` plugins. Expansion is one level deep (an alias can't call another alias).
 
+**3. Shell commands** -- like git, a value starting with `!` runs an arbitrary shell command (via `sh -c`). The extra CLI arguments are passed as positional parameters (`$1`, `$2`, ...), so the usual `!f() { ...; }; f` pattern works:
+
+```bash
+vox config alias.today '!date +%F'
+vox today                              # runs: date +%F
+
+vox config alias.say '!f() { notify-send "HoraVox" "$1"; }; f'
+vox say "Tea is ready"                 # $1 = "Tea is ready"
+```
+
+Shell aliases run in the shell (their exit code is propagated) and tab-complete by name only. **Security:** a `!` alias runs whatever you put in it, exactly like `--exec` — only put commands you trust in your own config.
+
 New-command aliases also appear in shell tab-completion (they inherit the target command's options), so `vox n<Tab>` completes `nap`. An alias whose value starts with an option instead of a command (e.g. `"--freq 30"` under a non-builtin name) can't dispatch, so it is skipped by completion.
 
 Manage aliases the same way as settings:

@@ -20,6 +20,7 @@ import importlib
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 
 from horavox.core import __version__
@@ -63,6 +64,21 @@ def build_parser():
     return parser
 
 
+def _run_shell_alias(name, body, args):
+    """Run a git-style shell alias ('!command') via sh, then exit.
+
+    Extra CLI args are passed as positional parameters ($1, $2, ...) by
+    appending ``"$@"`` to the command, so the common ``!f() { ...; }; f``
+    pattern receives them (as ``f "$@"``).
+    """
+    body = body.strip()
+    if not body:
+        print(f"Error: shell alias '{name}' is empty.")
+        sys.exit(1)
+    result = subprocess.run(["sh", "-c", f'{body} "$@"', name, *args])
+    sys.exit(result.returncode)
+
+
 def _add_alias_subparsers(subparsers):
     """Register git-style new-command aliases so tab-completion suggests them.
 
@@ -79,6 +95,10 @@ def _add_alias_subparsers(subparsers):
         return
     for alias_name, value in aliases.items():
         if alias_name in COMMANDS or not value:
+            continue
+        # Shell alias ('!...'): complete the name only (its args are arbitrary).
+        if value.startswith("!"):
+            subparsers.add_parser(alias_name, help=f"shell alias: {value}")
             continue
         try:
             tokens = shlex.split(value)
@@ -137,7 +157,11 @@ def main():
     # Builtins are never shadowed — an alias whose name is a builtin injects
     # default args into it instead (handled below).
     if cmd not in COMMANDS and cmd in aliases:
-        expansion = shlex.split(aliases[cmd])
+        value = aliases[cmd]
+        # Git-style shell alias: value starting with '!' runs a shell command.
+        if value.startswith("!"):
+            _run_shell_alias(cmd, value[1:], extra)  # exits the process
+        expansion = shlex.split(value)
         if not expansion:
             print(f"Error: alias '{cmd}' is empty.")
             sys.exit(1)

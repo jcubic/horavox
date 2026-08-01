@@ -1549,6 +1549,57 @@ class TestAliasDispatch:
                     with pytest.raises(SystemExit):
                         main()
 
+    def test_shell_alias_runs_via_sh_with_args(self):
+        # git-style: '!cmd' runs a shell command; CLI args become "$@"
+        self._write_config({"settings": {}, "alias": {"greet": "!echo hi"}})
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "greet", "a", "b"]):
+            with mock.patch("horavox.main.subprocess.run") as run:
+                run.return_value = mock.Mock(returncode=0)
+                with mock.patch("horavox.update.check_for_update"):
+                    with pytest.raises(SystemExit) as exc:
+                        main()
+        run.assert_called_once_with(["sh", "-c", 'echo hi "$@"', "greet", "a", "b"])
+        assert exc.value.code == 0
+
+    def test_shell_alias_function_pattern(self):
+        # the common !f() { ...; }; f pattern
+        body = 'f() { echo "$1"; }; f'
+        self._write_config({"settings": {}, "alias": {"fn": "!" + body}})
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "fn", "x"]):
+            with mock.patch("horavox.main.subprocess.run") as run:
+                run.return_value = mock.Mock(returncode=0)
+                with mock.patch("horavox.update.check_for_update"):
+                    with pytest.raises(SystemExit):
+                        main()
+        run.assert_called_once_with(["sh", "-c", f'{body} "$@"', "fn", "x"])
+
+    def test_shell_alias_exit_code_propagates(self):
+        self._write_config({"settings": {}, "alias": {"boom": "!false"}})
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "boom"]):
+            with mock.patch("horavox.main.subprocess.run") as run:
+                run.return_value = mock.Mock(returncode=3)
+                with mock.patch("horavox.update.check_for_update"):
+                    with pytest.raises(SystemExit) as exc:
+                        main()
+        assert exc.value.code == 3
+
+    def test_empty_shell_alias_errors(self, capsys):
+        self._write_config({"settings": {}, "alias": {"x": "!  "}})
+        from horavox.main import main
+
+        with mock.patch.object(sys, "argv", ["vox", "x"]):
+            with mock.patch("horavox.update.check_for_update"):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+        assert exc.value.code == 1
+        assert "empty" in capsys.readouterr().out
+
     def test_service_strips_background_from_explicit_args(self):
         self._write_config({"settings": {}, "alias": {}})
         captured_argv = []
@@ -2958,6 +3009,20 @@ class TestBuildParser:
         choices = parser._subparsers._group_actions[0].choices
         assert "nap" in choices
         assert "weird" not in choices  # unbalanced quotes -> shlex error -> skipped
+
+    def test_build_parser_includes_shell_alias(self, monkeypatch, tmp_path):
+        import json
+
+        import horavox.config as config
+
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps({"settings": {}, "alias": {"greet": "!echo hi"}}))
+        monkeypatch.setattr(config, "CONFIG_PATH", str(cfg))
+
+        from horavox.main import build_parser
+
+        parser = build_parser()
+        assert "greet" in parser._subparsers._group_actions[0].choices
 
 
 # ==================== update.py ====================
