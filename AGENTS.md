@@ -41,7 +41,7 @@ tests/
   test_chime.py       tests for horavox.chime
 ```
 
-`chime.py` is a package module but NOT a vox subcommand — it installs as its own `chime` console command (entry point in pyproject) for use with `--exec`, e.g. `vox clock --freq 30 --exec 'chime "$TIME"'`. mp3 resolution per file (`chime._mp3_path`): config `chime.mp3.{cut,end}` (via `load_config`) → `CHIME_DIR` env → bundled `data/chime_{cut,end}.mp3`. Paths resolved at call time (not import) so config is honored. `main()` returns an int exit code (console_scripts wraps it in `sys.exit`).
+`chime.py` is a package module but NOT a vox subcommand — it installs as its own `chime` console command (entry point in pyproject) for use with `--exec`, e.g. `vox clock --freq 30 --exec 'chime "$TIME"'`. mp3 resolution per file (`chime._mp3_path`): config `chime.mp3.{cut,end}` (via `load_config`) → `CHIME_DIR` env → bundled `data/chime_{cut,end}.mp3`. Paths resolved at call time (not import) so config is honored. The whole strike is played by a **single** `mpg123` process (`_play_all` passes all files as args) — do NOT revert to one `subprocess` per file, that reintroduces an audible gap between bells (process spawn + audio-device reopen). `main()` returns an int exit code (console_scripts wraps it in `sys.exit`).
 
 ## Runtime data (`~/.horavox/`)
 

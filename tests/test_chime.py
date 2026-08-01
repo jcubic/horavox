@@ -125,22 +125,32 @@ class TestChimeConfig:
         assert chime._chime_config() == {}
 
 
-class TestPlay:
-    def test_missing_file_returns_false(self, capsys):
-        with mock.patch.object(chime.os.path, "exists", return_value=False):
-            assert chime._play("/no/such.mp3") is False
-        assert "missing sound file" in capsys.readouterr().err
-
-    def test_runs_mpg123(self):
+class TestPlayAll:
+    def test_runs_mpg123_once_with_all_files(self):
+        # A single process for the whole sequence — this is what removes the gap
         with mock.patch.object(chime.os.path, "exists", return_value=True):
             with mock.patch.object(chime.subprocess, "run") as run:
-                assert chime._play("/tmp/x.mp3") is True
-        run.assert_called_once_with(["mpg123", "-q", "/tmp/x.mp3"], check=False)
+                chime._play_all(["/a.mp3", "/a.mp3", "/b.mp3"])
+        run.assert_called_once_with(["mpg123", "-q", "/a.mp3", "/a.mp3", "/b.mp3"], check=False)
 
-    def test_mpg123_missing_returns_false(self, capsys):
+    def test_missing_files_warned_and_skipped(self, capsys):
+        with mock.patch.object(chime.os.path, "exists", side_effect=lambda p: p == "/a.mp3"):
+            with mock.patch.object(chime.subprocess, "run") as run:
+                chime._play_all(["/a.mp3", "/b.mp3"])
+        run.assert_called_once_with(["mpg123", "-q", "/a.mp3"], check=False)
+        assert "missing sound file: /b.mp3" in capsys.readouterr().err
+
+    def test_all_missing_skips_mpg123(self, capsys):
+        with mock.patch.object(chime.os.path, "exists", return_value=False):
+            with mock.patch.object(chime.subprocess, "run") as run:
+                chime._play_all(["/a.mp3"])
+        run.assert_not_called()
+        assert "missing sound file" in capsys.readouterr().err
+
+    def test_mpg123_missing_is_tolerated(self, capsys):
         with mock.patch.object(chime.os.path, "exists", return_value=True):
             with mock.patch.object(chime.subprocess, "run", side_effect=FileNotFoundError):
-                assert chime._play("/tmp/x.mp3") is False
+                chime._play_all(["/a.mp3"])
         assert "mpg123 not found" in capsys.readouterr().err
 
 
