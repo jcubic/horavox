@@ -22,6 +22,7 @@ src/horavox/
   service.py      vox service — install/remove/list/start/run autostart instances
   registry.py     CRUD for ~/.horavox/data.json instance registry
   config.py       vox config — get/set defaults and aliases
+  chime.py        `chime` command (NOT a vox subcommand) — strike the hour, for --exec
   platforms/
     __init__.py   platform detection
     linux.py      systemd user service backend
@@ -31,12 +32,16 @@ src/horavox/
     lang/{en,pl}.json  time idiom data per language
     blank.mp3   silent MP3 for Bluetooth audio wake-up
     beep.mp3    beep sound for hour/half-hour signals
+    chime_cut.mp3 / chime_end.mp3  bell sounds for the `chime` command
 tests/
   test_core.py        unit tests for core (90% target)
   test_commands.py    command tests with mocked core
   test_install.py     service/registry/platform tests
   test_cli.py         E2E subprocess tests (HOME isolated to /tmp)
+  test_chime.py       tests for horavox.chime
 ```
+
+`chime.py` is a package module but NOT a vox subcommand — it installs as its own `chime` console command (entry point in pyproject) for use with `--exec`, e.g. `vox clock --freq 30 --exec 'chime "$TIME"'`. mp3 resolution per file (`chime._mp3_path`): config `chime.mp3.{cut,end}` (via `load_config`) → `CHIME_DIR` env → bundled `data/chime_{cut,end}.mp3`. Paths resolved at call time (not import) so config is honored. `main()` returns an int exit code (console_scripts wraps it in `sys.exit`).
 
 ## Runtime data (`~/.horavox/`)
 

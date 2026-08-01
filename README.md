@@ -280,6 +280,33 @@ vox clock --exec 'powershell -Command "New-BurntToastNotification -Text \"HoraVo
 
 The command runs asynchronously (fire-and-forget) so it won't block the next announcement.
 
+#### `chime` — strike the hour
+
+Installing HoraVox also installs a separate **`chime`** command (not a `vox` subcommand) that strikes the hour like a grandfather clock. Given a time it plays `chime_cut.mp3` `(hour - 1)` times followed by one `chime_end.mp3`, so the number of bells equals the hour; on the half hour it plays a single `chime_end.mp3`. It works out of the box with `--exec`:
+
+```bash
+vox clock --freq 30 --exec 'chime "$TIME"'   # strike the hour, single bell on the half hour
+```
+
+- `chime 10:00` → 9 × `chime_cut.mp3` + 1 × `chime_end.mp3` (10 bells); `chime 10:30` → one `chime_end.mp3`.
+- Uses 12-hour striking (midnight and noon strike 12). Other minutes do nothing.
+- The `chime_cut.mp3` / `chime_end.mp3` sounds ship inside the package (`horavox/data/`). Playback uses `mpg123` and is blocking, so the strikes run back-to-back as one continuous chime.
+
+Use your own bell sounds via config (highest priority), or point `CHIME_DIR` at a directory holding both files:
+
+```bash
+vox config chime.mp3.cut /path/to/cut.mp3
+vox config chime.mp3.end /path/to/end.mp3
+```
+
+which stores:
+
+```json
+"chime": { "mp3": { "cut": "/path/to/cut.mp3", "end": "/path/to/end.mp3" } }
+```
+
+Each override is per-file: an unset one falls back to `CHIME_DIR` (if set) and then the bundled default. `~` in paths is expanded.
+
 ### vox config
 
 Set default values and aliases so you don't have to repeat common flags:
