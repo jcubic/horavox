@@ -152,11 +152,20 @@ def parse_args():
     return parser.parse_args()
 
 
+def _parse_entry_time(value):
+    """Parse a mapping 'time' ('H:MM' or 'HH:MM') into (hour, minute), or None."""
+    try:
+        h, m = value.split(":")
+        return int(h), int(m)
+    except (ValueError, AttributeError):
+        return None
+
+
 def _find_mapping_message(mapping, hour, minute, weekday):
     """Find a matching mapping entry for the given time and weekday."""
-    time_key = f"{hour}:{minute:02d}"
     for entry in mapping:
-        if entry["time"] != time_key:
+        # Compare by parsed time so "0:00", "00:00" and "0:0" all match.
+        if _parse_entry_time(entry.get("time", "")) != (hour, minute):
             continue
         if "date" not in entry:
             return entry.get("message")

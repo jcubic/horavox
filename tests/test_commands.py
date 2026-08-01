@@ -785,6 +785,27 @@ class TestClockCommand:
         mapping = [{"time": "17:00"}]
         assert _find_mapping_message(mapping, 17, 0, 0) is None
 
+    def test_find_mapping_message_midnight_double_zero(self):
+        # "00:00" must match midnight even though the clock builds "0:00"
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "00:00", "message": "późno już"}]
+        assert _find_mapping_message(mapping, 0, 0, 0) == "późno już"
+
+    def test_find_mapping_message_leading_zero_hour(self):
+        # single-digit hours written with a leading zero still match
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "09:30", "message": "stand-up"}]
+        assert _find_mapping_message(mapping, 9, 30, 0) == "stand-up"
+
+    def test_find_mapping_message_malformed_time_ignored(self):
+        from horavox.clock import _find_mapping_message
+
+        mapping = [{"time": "not-a-time", "message": "x"}, {"time": "0:00", "message": "ok"}]
+        assert _find_mapping_message(mapping, 0, 0, 0) == "ok"
+        assert _find_mapping_message(mapping, 17, 0, 0) is None
+
     def test_service_foreground_creates_session(self, tmp_path):
         from horavox import clock
 
