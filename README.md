@@ -290,7 +290,7 @@ vox clock --freq 30 --exec 'chime "$TIME"'   # strike the hour, single bell on t
 
 - `chime 10:00` → 9 × `chime_cut.mp3` + 1 × `chime_end.mp3` (10 bells); `chime 10:30` → one `chime_end.mp3`.
 - Uses 12-hour striking (midnight and noon strike 12). Other minutes do nothing.
-- The `chime_cut.mp3` / `chime_end.mp3` sounds ship inside the package (`horavox/data/`). Playback uses `mpg123` and is blocking, so the strikes run back-to-back as one continuous chime.
+- The `chime_cut.mp3` / `chime_end.mp3` sounds ship inside the package (`horavox/data/`). Playback uses `mpg123` and is blocking, so the strikes run back-to-back as one continuous chime. A silent `blank.mp3` is played first to wake up Bluetooth audio so the first bell isn't clipped.
 
 Use your own bell sounds via config (highest priority), or point `CHIME_DIR` at a directory holding both files:
 
@@ -349,6 +349,8 @@ vox nap --volume 50      # extra args are appended: ...--message 'wake up' --vol
 ```
 
 Built-in commands are never shadowed (an alias named `clock` always injects args into the clock command, it can't replace it). New-command aliases can also target external `vox-<name>` plugins. Expansion is one level deep (an alias can't call another alias).
+
+New-command aliases also appear in shell tab-completion (they inherit the target command's options), so `vox n<Tab>` completes `nap`. An alias whose value starts with an option instead of a command (e.g. `"--freq 30"` under a non-builtin name) can't dispatch, so it is skipped by completion.
 
 Manage aliases the same way as settings:
 

@@ -37,9 +37,10 @@ be overridden via the HoraVox config (highest priority)::
     vox config chime.mp3.cut /path/to/cut.mp3
     vox config chime.mp3.end /path/to/end.mp3
 
-or point CHIME_DIR at a directory holding both files. Playback uses mpg123 (the
-same MP3 player HoraVox requires) and is blocking, so the strikes play
-back-to-back as one continuous chime.
+or point CHIME_DIR at a directory holding both files. A silent blank.mp3 is
+played first to wake up Bluetooth audio so the first bell isn't clipped.
+Playback uses mpg123 (the same MP3 player HoraVox requires) and is blocking,
+so the whole thing plays back-to-back as one continuous chime.
 """
 
 import os
@@ -47,6 +48,8 @@ import subprocess
 import sys
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# Silent MP3 played first to wake up Bluetooth audio so the first bell isn't clipped.
+BLANK_MP3 = os.path.join(DATA_DIR, "blank.mp3")
 
 
 def _chime_config():
@@ -104,12 +107,16 @@ def _play_all(paths):
 
 
 def chime(hour, minute):
-    """Strike for the given time: full hour on MM==00, single bell on MM==30."""
+    """Strike for the given time: full hour on MM==00, single bell on MM==30.
+
+    Each strike is prefixed with the silent blank.mp3 to wake up Bluetooth
+    audio, all played in one process so the bells stay gapless.
+    """
     if minute == 0:
         cut, end = _mp3_path("cut"), _mp3_path("end")
-        _play_all([cut] * (strikes_for_hour(hour) - 1) + [end])
+        _play_all([BLANK_MP3] + [cut] * (strikes_for_hour(hour) - 1) + [end])
     elif minute == 30:
-        _play_all([_mp3_path("end")])
+        _play_all([BLANK_MP3, _mp3_path("end")])
 
 
 def main(argv=None):

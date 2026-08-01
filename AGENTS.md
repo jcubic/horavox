@@ -75,7 +75,7 @@ tests/
 
 `vox-<name>` executables in `$PATH` work as `vox <name>` (git-style plugins).
 
-**Alias dispatch** (`main.py`): two kinds, keyed by whether the alias name is a builtin. Name == builtin → value is default args injected into that command (`alias.clock = "--freq 30"`). Name != builtin → git-style *new command*, value's first token is the target command (`alias.nap = "timer 30m -m X"` → `vox nap` runs `vox timer 30m -m X`; user args appended). Builtins are never shadowed; expansion is single-level; new-command aliases can also resolve to `vox-<name>` externals.
+**Alias dispatch** (`main.py`): two kinds, keyed by whether the alias name is a builtin. Name == builtin → value is default args injected into that command (`alias.clock = "--freq 30"`). Name != builtin → git-style *new command*, value's first token is the target command (`alias.nap = "timer 30m -m X"` → `vox nap` runs `vox timer 30m -m X`; user args appended). Builtins are never shadowed; expansion is single-level; new-command aliases can also resolve to `vox-<name>` externals. `build_parser` (argcomplete) registers new-command aliases as subparsers via `_add_alias_subparsers` so they tab-complete (inheriting the target builtin's options); option-first/empty/unparseable alias values are skipped. Completion is dynamic — build_parser reads config live each run.
 
 ## Time modes
 

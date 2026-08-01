@@ -59,7 +59,39 @@ def build_parser():
         mod = importlib.import_module(module_path)
         sub = subparsers.add_parser(name, help=desc)
         mod.setup_parser(sub)
+    _add_alias_subparsers(subparsers)
     return parser
+
+
+def _add_alias_subparsers(subparsers):
+    """Register git-style new-command aliases so tab-completion suggests them.
+
+    A new-command alias (name that is not a builtin) becomes its own subcommand;
+    if it expands to a builtin, that builtin's options are attached so the
+    alias completes flags too. Best-effort — never break completion on a bad
+    config.
+    """
+    try:
+        from horavox.config import get_aliases
+
+        aliases = get_aliases()
+    except Exception:
+        return
+    for alias_name, value in aliases.items():
+        if alias_name in COMMANDS or not value:
+            continue
+        try:
+            tokens = shlex.split(value)
+        except ValueError:
+            continue
+        # A new-command alias must start with a target command, not an option;
+        # an option-first value can't dispatch, so don't suggest it.
+        if not tokens or tokens[0].startswith("-"):
+            continue
+        sub = subparsers.add_parser(alias_name, help=f"alias for '{value}'")
+        target = tokens[0]
+        if target in COMMANDS:
+            importlib.import_module(COMMANDS[target][0]).setup_parser(sub)
 
 
 def print_help():

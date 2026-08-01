@@ -59,21 +59,25 @@ class TestChime:
         assert play.call_count == 1
         return play.call_args.args[0]
 
-    def test_full_hour_plays_cuts_then_end(self):
-        # 9 cuts + 1 end = 10 bells, end last, in one call
-        assert self._sequence(10, 0) == ["cut"] * 9 + ["end"]
+    def test_full_hour_plays_blank_then_cuts_then_end(self):
+        # blank warm-up, then 9 cuts + 1 end = 10 bells, in one call
+        assert self._sequence(10, 0) == [chime.BLANK_MP3] + ["cut"] * 9 + ["end"]
 
     def test_one_oclock_single_end_no_cuts(self):
-        assert self._sequence(1, 0) == ["end"]
+        assert self._sequence(1, 0) == [chime.BLANK_MP3, "end"]
 
     def test_midnight_twelve_bells(self):
-        assert self._sequence(0, 0) == ["cut"] * 11 + ["end"]
+        assert self._sequence(0, 0) == [chime.BLANK_MP3] + ["cut"] * 11 + ["end"]
 
     def test_half_hour_single_end(self):
-        assert self._sequence(10, 30) == ["end"]
+        assert self._sequence(10, 30) == [chime.BLANK_MP3, "end"]
 
     def test_other_minute_is_silent(self):
         assert self._sequence(10, 15) is None
+
+    def test_blank_mp3_is_bundled(self):
+        # The warm-up file must ship with the package
+        assert os.path.exists(chime.BLANK_MP3)
 
 
 class TestMp3Path:

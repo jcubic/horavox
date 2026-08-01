@@ -1,6 +1,9 @@
-## 0.5.1
+## 0.6.0
+### Feature
+* new `chime` script
 ### Bugfix
 * fix aliases to work like in git
+* fix completion of new aliases
 
 ## 0.5.0
 ### Feature

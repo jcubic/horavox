@@ -2876,6 +2876,89 @@ class TestBuildParser:
                     main()
                 mock_build.assert_called_once()
 
+    def test_build_parser_includes_new_command_alias(self, monkeypatch, tmp_path):
+        import json
+
+        import horavox.config as config
+
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps({"settings": {}, "alias": {"nap": "timer 30m --message x"}}))
+        monkeypatch.setattr(config, "CONFIG_PATH", str(cfg))
+
+        from horavox.main import build_parser
+
+        parser = build_parser()
+        # the alias is a completable subcommand...
+        assert "nap" in parser._subparsers._group_actions[0].choices
+        # ...and it inherits the target (timer) options
+        args = parser.parse_args(["nap", "5m", "--volume", "50"])
+        assert args.command == "nap"
+        assert args.volume == 50
+
+    def test_build_parser_skips_builtin_named_alias(self, monkeypatch, tmp_path):
+        import json
+
+        import horavox.config as config
+
+        # an alias named like a builtin injects args; it must not add a duplicate subparser
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps({"settings": {}, "alias": {"clock": "--freq 30"}}))
+        monkeypatch.setattr(config, "CONFIG_PATH", str(cfg))
+
+        from horavox.main import build_parser
+
+        parser = build_parser()  # must not raise (would if it re-added 'clock')
+        assert "clock" in parser._subparsers._group_actions[0].choices
+
+    def test_build_parser_survives_bad_alias(self, monkeypatch, tmp_path):
+        import json
+
+        import horavox.config as config
+
+        cfg = tmp_path / "config.json"
+        cfg.write_text(
+            json.dumps(
+                {
+                    "settings": {},
+                    "alias": {"bad": "", "opt": "--start 9 --freq 30", "nap": "timer 5m"},
+                }
+            )
+        )
+        monkeypatch.setattr(config, "CONFIG_PATH", str(cfg))
+
+        from horavox.main import build_parser
+
+        parser = build_parser()
+        choices = parser._subparsers._group_actions[0].choices
+        assert "nap" in choices
+        assert "bad" not in choices  # empty alias value is skipped
+        assert "opt" not in choices  # option-first alias can't dispatch, so skipped
+
+    def test_build_parser_tolerates_config_error(self):
+        from horavox.main import build_parser
+
+        with mock.patch("horavox.config.get_aliases", side_effect=RuntimeError("boom")):
+            parser = build_parser()  # must still build with just the builtins
+        assert "clock" in parser._subparsers._group_actions[0].choices
+
+    def test_build_parser_skips_unparseable_alias(self, monkeypatch, tmp_path):
+        import json
+
+        import horavox.config as config
+
+        cfg = tmp_path / "config.json"
+        cfg.write_text(
+            json.dumps({"settings": {}, "alias": {"weird": "timer 'unclosed", "nap": "timer 5m"}})
+        )
+        monkeypatch.setattr(config, "CONFIG_PATH", str(cfg))
+
+        from horavox.main import build_parser
+
+        parser = build_parser()
+        choices = parser._subparsers._group_actions[0].choices
+        assert "nap" in choices
+        assert "weird" not in choices  # unbalanced quotes -> shlex error -> skipped
+
 
 # ==================== update.py ====================
 
