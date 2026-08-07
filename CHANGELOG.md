@@ -1,6 +1,6 @@
 ## 0.6.1
 ### Bugfix
-* fix Polish `21` pronunciation
+* fix Polish `21` and `1` pronunciation
 
 ## 0.6.0
 ### Feature
