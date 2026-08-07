@@ -269,6 +269,10 @@ class TestGetSpokenTime:
     def test_pl_quarter_past(self, pl_classic):
         assert core.get_spoken_time(pl_classic, 9, 15) == "kwadrans po dziewiątej"
 
+    def test_pl_minutes_to_twenty_one(self, pl_classic):
+        # compound "one" stays invariant: "dwadzieścia jeden", not "jedna"
+        assert core.get_spoken_time(pl_classic, 9, 39) == "za dwadzieścia jeden dziesiąta"
+
     # Polish modern — 24-hour digital
     def test_pl_modern_17_45(self, pl_modern):
         assert core.get_spoken_time(pl_modern, 17, 45) == "siedemnasta czterdzieści pięć"

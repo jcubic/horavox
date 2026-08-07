@@ -1,3 +1,7 @@
+## 0.6.1
+### Bugfix
+* fix Polish `21` pronunciation
+
 ## 0.6.0
 ### Feature
 * new `chime` script
