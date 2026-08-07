@@ -3,7 +3,7 @@
        alt="HoraVox logotype: a simplistic analog clock and text HORAVOX" />
 </h1>
 
-[![pip](https://img.shields.io/badge/pip-0.6.0-blue.svg)](https://pypi.org/project/horavox/)
+[![pip](https://img.shields.io/badge/pip-0.6.1-blue.svg)](https://pypi.org/project/horavox/)
 [![CI](https://github.com/jcubic/horavox/actions/workflows/ci.yml/badge.svg)](https://github.com/jcubic/horavox/actions/workflows/ci.yml)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/horavox?period=total&units=INTERNATIONAL_SYSTEM&left_color=GREY&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/horavox)
 [![horavox GitHub repo](https://img.shields.io/badge/github-horavox-orange?logo=github)](https://github.com/jcubic/horavox)
