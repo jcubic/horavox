@@ -273,6 +273,13 @@ class TestGetSpokenTime:
         # compound "one" stays invariant: "dwadzieścia jeden", not "jedna"
         assert core.get_spoken_time(pl_classic, 9, 39) == "za dwadzieścia jeden dziesiąta"
 
+    def test_pl_minutes_to_one(self, pl_classic):
+        # noun "minuta" is unspoken, so the base cardinal "jeden" is used, not "jedna"
+        assert core.get_spoken_time(pl_classic, 9, 59) == "za jeden dziesiąta"
+
+    def test_pl_minutes_past_one(self, pl_classic):
+        assert core.get_spoken_time(pl_classic, 9, 1) == "jeden po dziewiątej"
+
     # Polish modern — 24-hour digital
     def test_pl_modern_17_45(self, pl_modern):
         assert core.get_spoken_time(pl_modern, 17, 45) == "siedemnasta czterdzieści pięć"
